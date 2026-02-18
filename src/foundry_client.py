@@ -50,7 +50,7 @@ def get_foundry_runner():
         )
     except Exception as exc:
         from .util.console import console
-        console.print(f"[yellow]⚠ Could not initialise Foundry client: {exc}[/yellow]")
+        console.print(f"[yellow]⚠ Could not initialize Foundry client: {exc}[/yellow]")
         console.print("[yellow]Running in offline mode (stub outputs).[/yellow]")
         return None
 

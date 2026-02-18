@@ -75,15 +75,21 @@ class TestMisconceptionTaxonomy:
     def test_all_misconception_ids_recognized(self):
         for mid in MISCONCEPTION_IDS:
             r = DiagnosisResult(
-                id="x", correct=False, misconception_id=mid,
-                why="test", confidence=0.5,
+                id="x",
+                correct=False,
+                misconception_id=mid,
+                why="test",
+                confidence=0.5,
             )
             assert r.misconception_id == mid
 
     def test_correct_answer_null_misconception(self):
         r = DiagnosisResult(
-            id="1", correct=True, misconception_id=None,
-            why="Correct", confidence=1.0,
+            id="1",
+            correct=True,
+            misconception_id=None,
+            why="Correct",
+            confidence=1.0,
         )
         assert r.misconception_id is None
 

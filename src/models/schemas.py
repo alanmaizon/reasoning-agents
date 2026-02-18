@@ -74,7 +74,7 @@ class Citation(BaseModel):
     title: str
     url: str
     snippet: str = Field(
-        ..., max_length=200, description="<=20 words snippet"
+        ..., max_length=200, description="Short snippet, <=20 words"
     )
 
 
