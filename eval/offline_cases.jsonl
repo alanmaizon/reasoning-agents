@@ -1,0 +1,5 @@
+{"case":"taxonomy_format","input":{"results":[{"id":"1","correct":false,"misconception_id":"SRM","why":"Confused shared responsibility","confidence":0.8}],"top_misconceptions":["SRM"]},"expected_valid":true}
+{"case":"schema_adherence_plan","input":{"domains":["Cloud Concepts"],"weights":{"Cloud Concepts":1.0},"target_questions":8,"next_focus":["SRM"]},"expected_valid":true}
+{"case":"verifier_rejects_no_citations","input":{"question_id":"1","explanation":"Some explanation","citations":[]},"expected_valid":false}
+{"case":"bad_misconception_id","input":{"results":[{"id":"1","correct":false,"misconception_id":"FAKE_ID","why":"Wrong","confidence":0.5}],"top_misconceptions":["FAKE_ID"]},"expected_valid":true}
+{"case":"plan_too_many_questions","input":{"domains":["Security"],"weights":{"Security":1.0},"target_questions":15,"next_focus":[]},"expected_valid":false}
