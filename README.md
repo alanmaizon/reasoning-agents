@@ -9,9 +9,10 @@ An Agents League "Reasoning Agents" submission that helps students prepare for t
 - **Multi-agent architecture**: PlannerAgent → ExaminerAgent → MisconceptionAgent → GroundingVerifierAgent → CoachAgent
 - **Misconception taxonomy**: 8 defined categories (SRM, IDAM, REGION, PRICING, GOV, SEC, SERVICE_SCOPE, TERMS)
 - **MCP grounding**: GroundingVerifierAgent uses Microsoft Learn docs via MCPTool with strict allow-listing
-- **Persistent state**: `student_state.json` tracks domain scores & misconceptions across sessions
+- **Persistent state**: local JSON for CLI, Azure Blob-backed state for hosted API mode
 - **Offline mode**: Full stub outputs for testing without API calls
 - **Schema-validated**: All agent communication uses Pydantic-enforced JSON schemas
+- **Hosted API**: FastAPI endpoints for Azure App Service deployment
 
 ## Architecture
 
@@ -55,6 +56,40 @@ cp .env.example .env
 python -m src.main
 ```
 
+## Run As API (Local)
+
+```bash
+# Start HTTP API
+uvicorn src.api:app --reload --port 8000
+
+# Health check
+curl http://127.0.0.1:8000/healthz
+```
+
+Example session calls:
+
+```bash
+# 1) Start session (returns plan + exam)
+START_JSON="$(curl -sS -X POST http://127.0.0.1:8000/v1/session/start \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "user_id": "alice",
+    "focus_topics": ["Security", "Cloud Concepts"],
+    "minutes": 25,
+    "offline": true
+  }')"
+
+# 2) Submit answers (send back exam from step 1 + answers)
+EXAM_JSON="$(echo "$START_JSON" | jq '.exam')"
+
+curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
+  -H 'Content-Type: application/json' \
+  -d "$(jq -n \
+      --arg user_id 'alice' \
+      --argjson exam "$EXAM_JSON" \
+      '{user_id: $user_id, exam: $exam, answers: {answers: {}}, offline: true}')"
+```
+
 ## Environment Variables
 
 | Variable | Required | Description |
@@ -62,6 +97,10 @@ python -m src.main
 | `AZURE_AI_PROJECT_ENDPOINT` | For online mode | Azure AI Foundry project endpoint |
 | `AZURE_AI_MODEL_DEPLOYMENT_NAME` | For online mode | Model deployment name (e.g., `gpt-4o`) |
 | `MCP_PROJECT_CONNECTION_NAME` | Optional | MCP connection name if required |
+| `AZURE_STORAGE_CONNECTION_STRING` | Optional | Enables Azure Blob persistence for state/cache |
+| `AZURE_STORAGE_CONTAINER` | Optional | Blob container name (default: `mdt-data`) |
+| `STATE_BLOB_PREFIX` | Optional | Blob prefix for student state (default: `state`) |
+| `CACHE_BLOB_NAME` | Optional | Blob path for cache JSON (default: `cache/cache.json`) |
 
 ## Project Structure
 
@@ -69,10 +108,16 @@ python -m src.main
 ├── README.md
 ├── LICENSE                        # MIT
 ├── requirements.txt
+├── Dockerfile                     # Container image for hosted API
+├── .dockerignore
 ├── .gitignore
 ├── .env.example
+├── scripts/
+│   └── azure/
+│       └── deploy_webapp.sh       # Azure App Service deployment
 ├── src/
 │   ├── main.py                    # CLI entrypoint
+│   ├── api.py                     # FastAPI app entrypoint
 │   ├── foundry_client.py          # Azure AI Foundry SDK wrapper
 │   ├── agents/
 │   │   ├── planner.py             # PlannerAgent
@@ -83,7 +128,8 @@ python -m src.main
 │   ├── orchestration/
 │   │   ├── workflow.py            # End-to-end pipeline
 │   │   ├── tool_policy.py         # MCP tool allow-list
-│   │   └── cache.py               # URL-based doc cache
+│   │   ├── cache.py               # URL-based doc cache (Blob/local)
+│   │   └── state_store.py         # Per-user state persistence (Blob/local)
 │   ├── models/
 │   │   ├── schemas.py             # Pydantic data models
 │   │   └── state.py               # Student state persistence
@@ -93,6 +139,7 @@ python -m src.main
 ├── eval/
 │   ├── offline_cases.jsonl        # Test cases
 │   ├── test_offline_eval.py       # Offline test harness (pytest)
+│   ├── test_api_eval.py           # API endpoint smoke tests
 │   └── online_eval_stub.py        # Online evaluation placeholder
 └── docs/
     ├── architecture.md            # Detailed architecture docs
@@ -104,6 +151,24 @@ python -m src.main
 ```bash
 # Run offline evaluation (no API calls)
 pytest eval/test_offline_eval.py -v
+```
+
+## Deploy To Azure App Service
+
+1. Set deployment variables in your shell:
+   - `RESOURCE_GROUP`, `LOCATION`, `ACR_NAME`, `APP_SERVICE_PLAN`, `WEBAPP_NAME`
+   - `AZURE_AI_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME`
+   - Optional: `MCP_PROJECT_CONNECTION_NAME`, `AZURE_STORAGE_CONNECTION_STRING`
+2. Run deployment:
+
+```bash
+bash scripts/azure/deploy_webapp.sh
+```
+
+After deployment, your API health endpoint is:
+
+```text
+https://<WEBAPP_NAME>.azurewebsites.net/healthz
 ```
 
 ## Safety & Security

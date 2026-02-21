@@ -14,15 +14,24 @@
 
 ```mermaid
 flowchart LR
-    A[Student Intake] --> B[PlannerAgent]
+    A[CLI or API Client] --> B[PlannerAgent]
     B --> C[ExaminerAgent]
-    C --> D[Quiz Presentation]
+    C --> D[Quiz Presentation or API Response]
     D --> E[MisconceptionAgent]
     E --> F[GroundingVerifierAgent]
     F --> G[CoachAgent]
     G --> H[Summary + State Save]
     H -.-> B
 ```
+
+## Service Interface
+
+Hosted mode uses `src/api.py` (FastAPI):
+
+- `GET /healthz` — health endpoint
+- `GET /v1/state/{user_id}` — fetch student state
+- `POST /v1/session/start` — generate plan + exam
+- `POST /v1/session/submit` — diagnose answers, ground explanations, produce coaching
 
 ## Misconception Taxonomy
 
@@ -53,10 +62,20 @@ an "Insufficient evidence" response with a placeholder Learn citation.
 
 ## Caching
 
-Fetched docs are cached by URL in `cache.json` (disk-backed) to:
+Fetched docs are cached by URL to:
+- Azure Blob (`CACHE_BLOB_NAME`) when storage is configured
+- Local `cache.json` otherwise
+
+Purpose:
 - Reduce redundant API calls
 - Provide basic rate-limit/cost protection
 - Speed up repeated queries
+
+## State Persistence
+
+Student state is persisted per user:
+- Azure Blob (`STATE_BLOB_PREFIX/<user>.json`) in hosted mode
+- Local `.data/state/<user>.json` fallback
 
 ## Reasoning Patterns
 
