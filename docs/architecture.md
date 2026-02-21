@@ -47,7 +47,9 @@ The `GroundingVerifierAgent` uses Microsoft Learn MCP for citation grounding.
 
 All other tool requests are **denied** with a reason message.
 
-Approval is set to `require_approval="always"` with auto-approve only for allow-listed tools.
+Before each tool call, policy checks both allow-list membership and approval handler.
+If MCP execution is unavailable in the active SDK/runtime, grounding falls back to
+an "Insufficient evidence" response with a placeholder Learn citation.
 
 ## Caching
 

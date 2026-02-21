@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 from ..models.schemas import (
     Citation,
@@ -12,7 +12,7 @@ from ..models.schemas import (
     Question,
 )
 from ..orchestration.cache import cache_get, cache_put
-from ..orchestration.tool_policy import is_tool_allowed
+from ..orchestration.tool_policy import approval_handler, is_tool_allowed
 from ..util.jsonio import extract_json
 
 
@@ -55,6 +55,123 @@ _STUB_CITATIONS = [
 ]
 
 
+def _iter_dicts(value: Any) -> Iterable[Dict[str, Any]]:
+    """Yield all nested dict nodes from a JSON-like structure."""
+    if isinstance(value, dict):
+        yield value
+        for v in value.values():
+            yield from _iter_dicts(v)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_dicts(item)
+
+
+def _first_text(d: Dict[str, Any], keys: List[str]) -> Optional[str]:
+    for k in keys:
+        v = d.get(k)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return None
+
+
+def _trim_words(text: str, max_words: int = 20) -> str:
+    words = text.split()
+    return " ".join(words[:max_words])
+
+
+def _to_snippet(text: str) -> str:
+    clean = " ".join(text.replace("\n", " ").split())
+    if not clean:
+        return ""
+    return _trim_words(clean, 20)
+
+
+def _build_search_query(question: Question, diag: Optional[DiagnosisResult]) -> str:
+    parts = [
+        "AZ-900",
+        question.domain,
+        question.stem,
+    ]
+    if diag and diag.misconception_id:
+        parts.append(diag.misconception_id)
+    return " | ".join(parts)
+
+
+def _extract_search_hits(payload: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Extract {title, url, snippet} records from varied MCP tool outputs."""
+    hits: List[Dict[str, str]] = []
+    seen = set()
+    url_keys = ["url", "link", "document_url", "source_url", "web_url", "href"]
+    title_keys = ["title", "name", "document_title", "page_title"]
+    snippet_keys = ["snippet", "summary", "description", "excerpt", "text"]
+
+    for node in _iter_dicts(payload):
+        url = _first_text(node, url_keys)
+        if not url or "learn.microsoft.com" not in url.lower():
+            continue
+        if url in seen:
+            continue
+        seen.add(url)
+        hits.append(
+            {
+                "title": _first_text(node, title_keys) or "Microsoft Learn",
+                "url": url,
+                "snippet": _to_snippet(_first_text(node, snippet_keys) or ""),
+            }
+        )
+    return hits
+
+
+def _extract_fetched_content(payload: Dict[str, Any]) -> str:
+    """Extract best-effort doc content text from varied MCP fetch payloads."""
+    content_keys = ["content", "text", "body", "markdown", "document", "page_content"]
+    candidates: List[str] = []
+    for node in _iter_dicts(payload):
+        text = _first_text(node, content_keys)
+        if text:
+            candidates.append(text)
+    if not candidates:
+        return ""
+    # Pick the longest body as primary doc content.
+    return max(candidates, key=len)
+
+
+def _supports_tool_runner(foundry_run: Any) -> bool:
+    return callable(getattr(foundry_run, "run_mcp_tool", None))
+
+
+def _run_mcp_tool(foundry_run: Any, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    if not is_tool_allowed(tool_name):
+        raise RuntimeError(f"MCP tool denied by policy: {tool_name}")
+    approved, reason = approval_handler(tool_name)
+    if not approved:
+        raise RuntimeError(f"MCP tool denied by approval handler: {reason}")
+    runner = getattr(foundry_run, "run_mcp_tool", None)
+    if not callable(runner):
+        raise RuntimeError("Foundry runner has no MCP tool capability")
+    result = runner(tool_name, arguments)
+    if isinstance(result, dict):
+        return result
+    return {"result": result}
+
+
+def _build_placeholder_citation() -> Citation:
+    return Citation(
+        title="Microsoft Learn",
+        url="https://learn.microsoft.com/",
+        snippet="No matching Microsoft Learn evidence retrieved yet.",
+    )
+
+
+def _fallback_ground(question: Question, evidence: List[Citation]) -> GroundedExplanation:
+    citation = evidence[0] if evidence else _build_placeholder_citation()
+    return GroundedExplanation(
+        question_id=question.id,
+        explanation="Insufficient evidence — please narrow your query.",
+        citations=[citation],
+    )
+
+
 def _offline_ground(question: Question, diag: Optional[DiagnosisResult]) -> GroundedExplanation:
     """Return a deterministic stub grounded explanation."""
     domain_citations = {
@@ -78,22 +195,67 @@ def run_grounding_verifier(
     question: Question,
     diagnosis_result: Optional[DiagnosisResult] = None,
     offline: bool = False,
-    foundry_run: Optional[Callable[..., str]] = None,
+    foundry_run: Optional[Any] = None,
 ) -> GroundedExplanation:
     if offline or foundry_run is None:
         return _offline_ground(question, diagnosis_result)
 
+    evidence: List[Citation] = []
+
+    # Use MCP tools when supported by the active Foundry runner.
+    if _supports_tool_runner(foundry_run):
+        try:
+            search_payload = _run_mcp_tool(
+                foundry_run,
+                "microsoft_docs_search",
+                {"query": _build_search_query(question, diagnosis_result), "top_k": 3},
+            )
+            hits = _extract_search_hits(search_payload)[:3]
+
+            for hit in hits:
+                url = hit["url"]
+                cached = cache_get(url)
+                if cached:
+                    content = cached
+                else:
+                    fetch_payload = _run_mcp_tool(
+                        foundry_run, "microsoft_docs_fetch", {"url": url}
+                    )
+                    content = _extract_fetched_content(fetch_payload)
+                    if content:
+                        cache_put(url, content)
+
+                snippet = _to_snippet(content) if content else hit["snippet"]
+                if not snippet:
+                    snippet = "See Microsoft Learn documentation for details."
+                evidence.append(
+                    Citation(
+                        title=hit["title"],
+                        url=url,
+                        snippet=_trim_words(snippet, 20),
+                    )
+                )
+        except Exception:
+            # We keep running and fall back to model-only grounding/fallback output.
+            evidence = []
+
     diag_json = diagnosis_result.model_dump() if diagnosis_result else {}
+    evidence_json = [c.model_dump() for c in evidence]
     prompt = (
         f"Question:\n{json.dumps(question.model_dump(), indent=2)}\n\n"
         f"Diagnosis:\n{json.dumps(diag_json, indent=2)}\n\n"
-        "Search Microsoft Learn and provide grounded explanation with citations."
+        f"Evidence from Microsoft Learn MCP tools:\n{json.dumps(evidence_json, indent=2)}\n\n"
+        "Use ONLY the evidence URLs above for citations whenever evidence is available. "
+        "If evidence is empty, return the insufficient-evidence fallback."
     )
-    raw = foundry_run(
-        "GroundingVerifierAgent", GROUNDING_SYSTEM_PROMPT, prompt
-    )
-    data = extract_json(raw)
-    result = GroundedExplanation.model_validate(data)
+    try:
+        raw = foundry_run(
+            "GroundingVerifierAgent", GROUNDING_SYSTEM_PROMPT, prompt
+        )
+        data = extract_json(raw)
+        result = GroundedExplanation.model_validate(data)
+    except Exception:
+        return _fallback_ground(question, evidence)
 
     # Cache any fetched URLs
     for c in result.citations:

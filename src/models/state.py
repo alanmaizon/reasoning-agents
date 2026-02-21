@@ -7,9 +7,11 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from .schemas import MisconceptionId
+
 
 class MisconceptionRecord(BaseModel):
-    misconception_id: str
+    misconception_id: MisconceptionId
     count: int = 1
     last_seen: str = Field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
@@ -39,6 +41,8 @@ class StudentState(BaseModel):
             score = sum(outcomes) / len(outcomes) if outcomes else 0.0
             prev = self.domain_scores.get(d, 0.5)
             self.domain_scores[d] = round(0.6 * prev + 0.4 * score, 3)
+        for d in domains_covered:
+            self.domain_scores.setdefault(d, 0.5)
 
         # Update misconceptions
         top = diagnosis_data.get("top_misconceptions", [])

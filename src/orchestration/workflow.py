@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
+
+from pydantic import ValidationError
 
 from ..models.schemas import (
     Coaching,
@@ -38,13 +39,24 @@ STATE_PATH = Path("student_state.json")
 
 def _load_state() -> StudentState:
     raw = load_json(STATE_PATH)
-    if raw:
+    if not raw:
+        return StudentState()
+    try:
         return StudentState.model_validate(raw)
-    return StudentState()
+    except ValidationError:
+        console.print(
+            "[yellow]State file is invalid for current schema; starting with a fresh state.[/yellow]"
+        )
+        return StudentState()
 
 
-def _save_state(state: StudentState) -> None:
-    save_json(STATE_PATH, state.model_dump())
+def _save_state(state: StudentState) -> bool:
+    try:
+        save_json(STATE_PATH, state.model_dump())
+        return True
+    except OSError as exc:
+        console.print(f"[yellow]Could not save state: {exc}[/yellow]")
+        return False
 
 
 def _prompt_user_intake() -> tuple[list[str], int]:
@@ -58,6 +70,8 @@ def _prompt_user_intake() -> tuple[list[str], int]:
     try:
         minutes = int(raw_mins) if raw_mins else 30
     except ValueError:
+        minutes = 30
+    if minutes <= 0:
         minutes = 30
     return topics, minutes
 
@@ -104,21 +118,46 @@ def run_workflow(
 
     # 3. Plan
     print_step("2/7", "Planning study session")
-    plan: Plan = run_planner(
-        state=state,
-        focus_topics=focus_topics,
-        offline=offline,
-        foundry_run=foundry_run,
-    )
+    try:
+        plan: Plan = run_planner(
+            state=state,
+            focus_topics=focus_topics,
+            offline=offline,
+            foundry_run=foundry_run,
+        )
+    except Exception as exc:
+        if offline:
+            raise
+        console.print(
+            f"[yellow]Planner failed online ({exc}); falling back to offline planner.[/yellow]"
+        )
+        plan = run_planner(
+            state=state,
+            focus_topics=focus_topics,
+            offline=True,
+            foundry_run=None,
+        )
     console.print(f"  Domains: {plan.domains}  |  Questions: {plan.target_questions}")
 
     # 4. Quiz
     print_step("3/7", "Generating adaptive quiz")
-    exam: Exam = run_examiner(
-        plan=plan,
-        offline=offline,
-        foundry_run=foundry_run,
-    )
+    try:
+        exam: Exam = run_examiner(
+            plan=plan,
+            offline=offline,
+            foundry_run=foundry_run,
+        )
+    except Exception as exc:
+        if offline:
+            raise
+        console.print(
+            f"[yellow]Examiner failed online ({exc}); falling back to offline examiner.[/yellow]"
+        )
+        exam = run_examiner(
+            plan=plan,
+            offline=True,
+            foundry_run=None,
+        )
     console.print(f"  Generated {len(exam.questions)} questions")
 
     # 5. Present quiz & collect answers
@@ -127,12 +166,26 @@ def run_workflow(
 
     # 6. Diagnose
     print_step("5/7", "Diagnosing misconceptions")
-    diagnosis: Diagnosis = run_misconception(
-        exam=exam,
-        answers=answer_sheet,
-        offline=offline,
-        foundry_run=foundry_run,
-    )
+    try:
+        diagnosis: Diagnosis = run_misconception(
+            exam=exam,
+            answers=answer_sheet,
+            offline=offline,
+            foundry_run=foundry_run,
+        )
+    except Exception as exc:
+        if offline:
+            raise
+        console.print(
+            "[yellow]Misconception analysis failed online "
+            f"({exc}); falling back to offline diagnosis.[/yellow]"
+        )
+        diagnosis = run_misconception(
+            exam=exam,
+            answers=answer_sheet,
+            offline=True,
+            foundry_run=None,
+        )
     print_diagnosis_summary(diagnosis.model_dump())
 
     # 7. Ground explanations (only for wrong answers)
@@ -145,12 +198,26 @@ def run_workflow(
         diag_entry = next(
             (r for r in diagnosis.results if r.id == q.id), None
         )
-        g = run_grounding_verifier(
-            question=q,
-            diagnosis_result=diag_entry,
-            offline=offline,
-            foundry_run=foundry_run,
-        )
+        try:
+            g = run_grounding_verifier(
+                question=q,
+                diagnosis_result=diag_entry,
+                offline=offline,
+                foundry_run=foundry_run,
+            )
+        except Exception as exc:
+            if offline:
+                raise
+            console.print(
+                "[yellow]Grounding failed online for "
+                f"Q{q.id} ({exc}); using offline grounded explanation.[/yellow]"
+            )
+            g = run_grounding_verifier(
+                question=q,
+                diagnosis_result=diag_entry,
+                offline=True,
+                foundry_run=None,
+            )
         grounded.append(g)
     if grounded:
         print_grounded([g.model_dump() for g in grounded])
@@ -159,12 +226,25 @@ def run_workflow(
 
     # 8. Coach
     print_step("7/7", "Generating coaching & micro-drills")
-    coaching: Coaching = run_coach(
-        diagnosis=diagnosis,
-        grounded=grounded,
-        offline=offline,
-        foundry_run=foundry_run,
-    )
+    try:
+        coaching: Coaching = run_coach(
+            diagnosis=diagnosis,
+            grounded=grounded,
+            offline=offline,
+            foundry_run=foundry_run,
+        )
+    except Exception as exc:
+        if offline:
+            raise
+        console.print(
+            f"[yellow]Coach failed online ({exc}); falling back to offline coach.[/yellow]"
+        )
+        coaching = run_coach(
+            diagnosis=diagnosis,
+            grounded=grounded,
+            offline=True,
+            foundry_run=None,
+        )
     print_coaching(coaching.model_dump())
 
     # 9. Persist state
@@ -176,5 +256,7 @@ def run_workflow(
         if q_match:
             r["domain"] = q_match.domain
     state.update_from_diagnosis(diag_dump, domains_covered)
-    _save_state(state)
-    console.print("\n[bold green]✅ Session complete. State saved.[/bold green]\n")
+    if _save_state(state):
+        console.print("\n[bold green]✅ Session complete. State saved.[/bold green]\n")
+    else:
+        console.print("\n[bold yellow]✅ Session complete. State not saved.[/bold yellow]\n")

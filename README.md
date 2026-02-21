@@ -119,15 +119,16 @@ pytest eval/test_offline_eval.py -v
 
 ## MCP Grounding
 
-The GroundingVerifierAgent integrates with Microsoft Learn via MCP:
+The GroundingVerifierAgent attempts Microsoft Learn grounding via MCP tools when
+the active Foundry SDK/runtime exposes MCP tool execution:
 
 1. **Search**: Finds relevant docs using `microsoft_docs_search`
 2. **Fetch**: Retrieves content using `microsoft_docs_fetch`
 3. **Cache**: Stores fetched docs in `cache.json` by URL
-4. **Verify**: Every claim must have a citation (title, URL, ≤20-word snippet)
-5. **Fallback**: Returns "Insufficient evidence" if no citations available
+4. **Verify**: Every claim must have a citation (title, `learn.microsoft.com` URL, ≤20-word snippet)
+5. **Fallback**: Returns "Insufficient evidence" if tool execution or output validation fails
 
-Tool approval uses `require_approval="always"` with auto-approve only for allow-listed tools.
+Tool policy is enforced through an allow-list and approval handler before each MCP call.
 
 ## Demo
 
