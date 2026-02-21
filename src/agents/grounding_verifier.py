@@ -140,6 +140,20 @@ def _supports_tool_runner(foundry_run: Any) -> bool:
     return callable(getattr(foundry_run, "run_mcp_tool", None))
 
 
+def _discover_tool_names(foundry_run: Any) -> Optional[set[str]]:
+    """Return discovered MCP tool names, or None when discovery is unavailable."""
+    list_tools = getattr(foundry_run, "list_mcp_tools", None)
+    if not callable(list_tools):
+        return None
+    try:
+        tools = list_tools()
+    except Exception:
+        return None
+    if not isinstance(tools, list):
+        return None
+    return {t.strip() for t in tools if isinstance(t, str) and t.strip()}
+
+
 def _run_mcp_tool(foundry_run: Any, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     if not is_tool_allowed(tool_name):
         raise RuntimeError(f"MCP tool denied by policy: {tool_name}")
@@ -153,6 +167,69 @@ def _run_mcp_tool(foundry_run: Any, tool_name: str, arguments: Dict[str, Any]) -
     if isinstance(result, dict):
         return result
     return {"result": result}
+
+
+def _tool_available(tool_name: str, discovered_tools: Optional[set[str]]) -> bool:
+    if discovered_tools is None:
+        return True
+    return tool_name in discovered_tools
+
+
+def _run_search_tool(
+    foundry_run: Any,
+    tool_name: str,
+    query: str,
+    top_k: int,
+    discovered_tools: Optional[set[str]],
+) -> Optional[Dict[str, Any]]:
+    if not _tool_available(tool_name, discovered_tools):
+        return None
+
+    attempts = [
+        {"query": query, "top_k": top_k},
+        {"query": query},
+        {"q": query},
+    ]
+    for args in attempts:
+        try:
+            return _run_mcp_tool(foundry_run, tool_name, args)
+        except Exception:
+            continue
+    return None
+
+
+def _run_fetch_tool(
+    foundry_run: Any,
+    url: str,
+    discovered_tools: Optional[set[str]],
+) -> Optional[Dict[str, Any]]:
+    tool_name = "microsoft_docs_fetch"
+    if not _tool_available(tool_name, discovered_tools):
+        return None
+
+    attempts = [
+        {"url": url},
+        {"uri": url},
+    ]
+    for args in attempts:
+        try:
+            return _run_mcp_tool(foundry_run, tool_name, args)
+        except Exception:
+            continue
+    return None
+
+
+def _merge_hits(*hit_groups: List[Dict[str, str]]) -> List[Dict[str, str]]:
+    merged: List[Dict[str, str]] = []
+    seen = set()
+    for group in hit_groups:
+        for hit in group:
+            url = hit.get("url", "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            merged.append(hit)
+    return merged
 
 
 def _build_placeholder_citation() -> Citation:
@@ -204,40 +281,59 @@ def run_grounding_verifier(
 
     # Use MCP tools when supported by the active Foundry runner.
     if _supports_tool_runner(foundry_run):
-        try:
-            search_payload = _run_mcp_tool(
-                foundry_run,
-                "microsoft_docs_search",
-                {"query": _build_search_query(question, diagnosis_result), "top_k": 3},
-            )
-            hits = _extract_search_hits(search_payload)[:3]
+        query = _build_search_query(question, diagnosis_result)
+        discovered_tools = _discover_tool_names(foundry_run)
 
-            for hit in hits:
-                url = hit["url"]
-                cached = cache_get(url)
-                if cached:
-                    content = cached
-                else:
-                    fetch_payload = _run_mcp_tool(
-                        foundry_run, "microsoft_docs_fetch", {"url": url}
-                    )
-                    content = _extract_fetched_content(fetch_payload)
-                    if content:
-                        cache_put(url, content)
+        docs_hits: List[Dict[str, str]] = []
+        code_sample_hits: List[Dict[str, str]] = []
 
-                snippet = _to_snippet(content) if content else hit["snippet"]
-                if not snippet:
-                    snippet = "See Microsoft Learn documentation for details."
-                evidence.append(
-                    Citation(
-                        title=hit["title"],
-                        url=url,
-                        snippet=_trim_words(snippet, 20),
-                    )
+        docs_payload = _run_search_tool(
+            foundry_run=foundry_run,
+            tool_name="microsoft_docs_search",
+            query=query,
+            top_k=3,
+            discovered_tools=discovered_tools,
+        )
+        if docs_payload:
+            docs_hits = _extract_search_hits(docs_payload)
+
+        code_payload = _run_search_tool(
+            foundry_run=foundry_run,
+            tool_name="microsoft_code_sample_search",
+            query=query,
+            top_k=2,
+            discovered_tools=discovered_tools,
+        )
+        if code_payload:
+            code_sample_hits = _extract_search_hits(code_payload)
+
+        hits = _merge_hits(docs_hits, code_sample_hits)[:3]
+
+        for hit in hits:
+            url = hit["url"]
+            cached = cache_get(url)
+            if cached:
+                content = cached
+            else:
+                fetch_payload = _run_fetch_tool(
+                    foundry_run=foundry_run,
+                    url=url,
+                    discovered_tools=discovered_tools,
                 )
-        except Exception:
-            # We keep running and fall back to model-only grounding/fallback output.
-            evidence = []
+                content = _extract_fetched_content(fetch_payload or {})
+                if content:
+                    cache_put(url, content)
+
+            snippet = _to_snippet(content) if content else hit["snippet"]
+            if not snippet:
+                snippet = "See Microsoft Learn documentation for details."
+            evidence.append(
+                Citation(
+                    title=hit["title"],
+                    url=url,
+                    snippet=_trim_words(snippet, 20),
+                )
+            )
 
     diag_json = diagnosis_result.model_dump() if diagnosis_result else {}
     evidence_json = [c.model_dump() for c in evidence]

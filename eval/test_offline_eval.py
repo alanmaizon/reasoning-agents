@@ -380,6 +380,8 @@ class _FakeFoundryRunner:
         self.tool_calls.append((tool_name, arguments))
         if tool_name == "microsoft_docs_search":
             return self.search_payload
+        if tool_name == "microsoft_code_sample_search":
+            return {}
         if tool_name == "microsoft_docs_fetch":
             return self.fetch_payload
         raise RuntimeError(f"unexpected tool: {tool_name}")
@@ -459,10 +461,9 @@ class TestGroundingVerifierMcp:
 
         assert ge.question_id == "1"
         assert ge.citations[0].url.startswith("https://learn.microsoft.com/")
-        assert [c[0] for c in runner.tool_calls] == [
-            "microsoft_docs_search",
-            "microsoft_docs_fetch",
-        ]
+        called_tools = [c[0] for c in runner.tool_calls]
+        assert "microsoft_docs_search" in called_tools
+        assert "microsoft_docs_fetch" in called_tools
 
     def test_grounding_falls_back_when_model_output_invalid(self):
         q = Question(

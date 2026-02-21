@@ -53,10 +53,13 @@ The `GroundingVerifierAgent` uses Microsoft Learn MCP for citation grounding.
 **Allow-list** (read-only):
 - `microsoft_docs_search` — search Learn documentation
 - `microsoft_docs_fetch` — fetch a specific Learn page
+- `microsoft_code_sample_search` — search Learn-backed code samples
 
 All other tool requests are **denied** with a reason message.
 
 Before each tool call, policy checks both allow-list membership and approval handler.
+When the runtime exposes MCP tool discovery, the agent uses discovered tool names
+to avoid assuming every tool is available.
 If MCP execution is unavailable in the active SDK/runtime, grounding falls back to
 an "Insufficient evidence" response with a placeholder Learn citation.
 

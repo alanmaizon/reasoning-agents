@@ -226,7 +226,7 @@ https://<your-domain>/healthz
 | Concern | Mitigation |
 |---------|-----------|
 | **Secrets** | `.env` in `.gitignore`; `.env.example` provided |
-| **Tool allow-listing** | Only `microsoft_docs_search` and `microsoft_docs_fetch` permitted |
+| **Tool allow-listing** | Only read-only Learn MCP tools are permitted (`microsoft_docs_search`, `microsoft_docs_fetch`, `microsoft_code_sample_search`) |
 | **Citation grounding** | Every explanation requires ≥1 citation; fallback: "Insufficient evidence" |
 | **Schema validation** | Pydantic enforces JSON contracts between all agents |
 | **Rate limiting** | Disk-backed URL cache; quiz capped at 12 questions |
@@ -238,12 +238,15 @@ The GroundingVerifierAgent attempts Microsoft Learn grounding via MCP tools when
 the active Foundry SDK/runtime exposes MCP tool execution:
 
 1. **Search**: Finds relevant docs using `microsoft_docs_search`
-2. **Fetch**: Retrieves content using `microsoft_docs_fetch`
-3. **Cache**: Stores fetched docs in `cache.json` by URL
-4. **Verify**: Every claim must have a citation (title, `learn.microsoft.com` URL, ≤20-word snippet)
-5. **Fallback**: Returns "Insufficient evidence" if tool execution or output validation fails
+2. **Code Samples**: Augments evidence with `microsoft_code_sample_search` when available
+3. **Fetch**: Retrieves content using `microsoft_docs_fetch`
+4. **Cache**: Stores fetched docs in `cache.json` by URL
+5. **Verify**: Every claim must have a citation (title, `learn.microsoft.com` URL, ≤20-word snippet)
+6. **Fallback**: Returns "Insufficient evidence" if tool execution or output validation fails
 
 Tool policy is enforced through an allow-list and approval handler before each MCP call.
+When runtime tool discovery is available, the agent prefers discovered tools rather
+than assuming every tool is present.
 
 ## Demo
 

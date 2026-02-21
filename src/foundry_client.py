@@ -51,6 +51,37 @@ def _to_jsonable(value: Any) -> Any:
     return str(value)
 
 
+def _iter_nodes(value: Any):
+    if isinstance(value, dict):
+        yield value
+        for item in value.values():
+            yield from _iter_nodes(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _iter_nodes(item)
+
+
+def _extract_tool_names(payload: Any) -> List[str]:
+    """Extract MCP tool names from varied list-tools response shapes."""
+    names: List[str] = []
+    seen = set()
+
+    for node in _iter_nodes(payload):
+        if not isinstance(node, dict):
+            continue
+        for key in ("name", "tool_name"):
+            raw_name = node.get(key)
+            if not isinstance(raw_name, str):
+                continue
+            name = raw_name.strip()
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            names.append(name)
+
+    return names
+
+
 def _looks_like_azure_openai_endpoint(endpoint: str) -> bool:
     host = endpoint.lower()
     return any(
@@ -272,6 +303,63 @@ class FoundryRunner:
         reason = (
             "MCP tool execution is not available from this Foundry client runtime."
         )
+        if attempts:
+            reason = f"{reason} Attempts: {' | '.join(attempts[:3])}"
+        raise RuntimeError(reason)
+
+    def list_mcp_tools(self) -> List[str]:
+        """Return available MCP tool names when runtime exposes discovery."""
+        if self.client is None:
+            raise RuntimeError(
+                "MCP tool discovery requires an Azure AI Projects client runtime."
+            )
+
+        attempts = []
+
+        def _invoke(callable_obj, kwargs: Dict[str, Any]):
+            try:
+                return callable_obj(**kwargs)
+            except Exception as exc:
+                attempts.append(f"{callable_obj}: {exc}")
+                return None
+
+        # Candidate 1: client.mcp.list_tools(...)
+        mcp = getattr(self.client, "mcp", None)
+        if mcp is not None:
+            list_tools = getattr(mcp, "list_tools", None)
+            if callable(list_tools):
+                result = _invoke(list_tools, {})
+                if result is not None:
+                    names = _extract_tool_names(_to_jsonable(result))
+                    if names:
+                        return names
+
+        # Candidate 2: client.tools.list(...)
+        tools = getattr(self.client, "tools", None)
+        if tools is not None:
+            list_tools = getattr(tools, "list", None)
+            if callable(list_tools):
+                result = _invoke(list_tools, {})
+                if result is not None:
+                    names = _extract_tool_names(_to_jsonable(result))
+                    if names:
+                        return names
+
+        # Candidate 3: client.connections.list_tools(...)
+        connections = getattr(self.client, "connections", None)
+        if connections is not None:
+            list_tools = getattr(connections, "list_tools", None)
+            if callable(list_tools):
+                kwargs: Dict[str, Any] = {}
+                if self.mcp_connection_name:
+                    kwargs["connection_name"] = self.mcp_connection_name
+                result = _invoke(list_tools, kwargs)
+                if result is not None:
+                    names = _extract_tool_names(_to_jsonable(result))
+                    if names:
+                        return names
+
+        reason = "MCP tool discovery is not available from this Foundry client runtime."
         if attempts:
             reason = f"{reason} Attempts: {' | '.join(attempts[:3])}"
         raise RuntimeError(reason)

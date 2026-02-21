@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import Set
 
 # Only read-only Microsoft Learn tools are permitted
-ALLOWED_MCP_TOOLS: Set[str] = {"microsoft_docs_search", "microsoft_docs_fetch"}
+ALLOWED_MCP_TOOLS: Set[str] = {
+    "microsoft_docs_search",
+    "microsoft_docs_fetch",
+    "microsoft_code_sample_search",
+}
 
 
 def is_tool_allowed(tool_name: str) -> bool:
