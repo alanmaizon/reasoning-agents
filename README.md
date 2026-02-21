@@ -112,9 +112,14 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 ├── .dockerignore
 ├── .gitignore
 ├── .env.example
+├── .github/
+│   └── workflows/
+│       └── deploy_vm.yml         # CI/CD deploy to Azure VM on push to main
 ├── scripts/
 │   └── azure/
-│       └── deploy_webapp.sh       # Azure App Service deployment
+│       ├── deploy_webapp.sh       # Azure App Service deployment
+│       ├── deploy_webapp_code.sh  # App Service code-only deployment
+│       └── deploy_vm_code.sh      # Azure VM deployment over SSH
 ├── src/
 │   ├── main.py                    # CLI entrypoint
 │   ├── api.py                     # FastAPI app entrypoint
@@ -169,6 +174,51 @@ After deployment, your API health endpoint is:
 
 ```text
 https://<WEBAPP_NAME>.azurewebsites.net/healthz
+```
+
+## Deploy To Azure VM
+
+Manual deploy from your machine:
+
+```bash
+export VM_HOST=<your-vm-ip-or-dns>
+export VM_USER=azureuser
+export HEALTHCHECK_URL=https://<your-domain>/healthz
+bash scripts/azure/deploy_vm_code.sh
+```
+
+Optional overrides:
+
+- `VM_PORT` (default `22`)
+- `APP_DIR` (default `/home/<VM_USER>/app`)
+- `SERVICE_NAME` (default `mdt-api`)
+
+## GitHub Actions CI/CD To VM
+
+Workflow file: `.github/workflows/deploy_vm.yml`
+
+It runs on push to `main` and:
+
+1. Installs dependencies
+2. Runs `pytest -q`
+3. Deploys code to the VM
+4. Restarts `mdt-api`
+5. Runs a health check (if configured)
+
+Set these repository secrets:
+
+- `VM_HOST` (required)
+- `VM_SSH_PRIVATE_KEY` (required; private key matching VM `authorized_keys`)
+- `VM_USER` (optional, default `azureuser`)
+- `VM_PORT` (optional, default `22`)
+- `VM_APP_DIR` (optional, default `/home/<VM_USER>/app`)
+- `VM_SERVICE_NAME` (optional, default `mdt-api`)
+- `HEALTHCHECK_URL` (optional, recommended)
+
+Example health check URL:
+
+```text
+https://<your-domain>/healthz
 ```
 
 ## Safety & Security
