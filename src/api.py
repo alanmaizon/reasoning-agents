@@ -184,6 +184,31 @@ def _resolve_runtime(force_offline: bool) -> Tuple[bool, Any]:
     return False, runner
 
 
+def _summarize_online_error(exc: Exception) -> str:
+    raw = " ".join(str(exc).split())
+    lower = raw.lower()
+
+    if "resource not found" in lower or "error code: 404" in lower:
+        return (
+            "Endpoint or deployment not found. "
+            "Check AZURE_AI_PROJECT_ENDPOINT and AZURE_AI_MODEL_DEPLOYMENT_NAME."
+        )
+
+    if (
+        "defaultazurecredential failed" in lower
+        or "managedidentitycredential authentication unavailable" in lower
+        or "identity not found" in lower
+    ):
+        return (
+            "Credential setup failed for online model access. "
+            "Configure VM managed identity permissions or set AZURE_OPENAI_API_KEY."
+        )
+
+    if len(raw) > 240:
+        return f"{raw[:237].rstrip()}..."
+    return raw
+
+
 def _run_stage(
     stage_name: str,
     allow_online: bool,
@@ -197,8 +222,9 @@ def _run_stage(
     try:
         return run_online(), False
     except Exception as exc:
+        short_reason = _summarize_online_error(exc)
         warnings.append(
-            f"{stage_name} failed online; used offline fallback. ({exc})"
+            f"{stage_name} failed online; used offline fallback. ({short_reason})"
         )
         return run_offline(), True
 
