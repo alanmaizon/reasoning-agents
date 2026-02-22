@@ -37,6 +37,14 @@ function hasMsal() {
   return Boolean(window.msal?.PublicClientApplication);
 }
 
+async function createMsalClient(config) {
+  const client = new window.msal.PublicClientApplication(config);
+  if (typeof client.initialize === "function") {
+    await client.initialize();
+  }
+  return client;
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const script = document.createElement("script");
@@ -280,14 +288,20 @@ async function initAuth() {
     return;
   }
 
-  state.msal = new window.msal.PublicClientApplication({
-    auth: {
-      clientId: cfg.client_id,
-      authority: cfg.authority,
-      redirectUri: window.location.origin + "/",
-    },
-    cache: { cacheLocation: "sessionStorage" },
-  });
+  try {
+    state.msal = await createMsalClient({
+      auth: {
+        clientId: cfg.client_id,
+        authority: cfg.authority,
+        redirectUri: window.location.origin + "/",
+      },
+      cache: { cacheLocation: "sessionStorage" },
+    });
+  } catch (err) {
+    setBanner("error", `MSAL initialization failed. ${err.message}`);
+    setFormsEnabled(false);
+    return;
+  }
 
   const accounts = state.msal.getAllAccounts();
   if (accounts.length > 0) {
