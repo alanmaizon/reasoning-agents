@@ -1,0 +1,274 @@
+:root {
+  --bg: #eef3f8;
+  --ink: #162129;
+  --muted: #4f6473;
+  --panel: rgba(255, 255, 255, 0.9);
+  --line: rgba(16, 40, 58, 0.12);
+  --primary: #0f6d70;
+  --primary-ink: #ffffff;
+  --accent: #d66d1a;
+  --accent-ink: #1d1207;
+  --danger: #af1b3f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  color: var(--ink);
+  background:
+    radial-gradient(1400px 800px at 5% -10%, #d2edf4 0%, transparent 60%),
+    radial-gradient(1200px 760px at 96% 0%, #ffe7d0 0%, transparent 57%),
+    var(--bg);
+}
+
+.bg-orb {
+  position: fixed;
+  border-radius: 50%;
+  filter: blur(60px);
+  opacity: 0.35;
+  z-index: -1;
+}
+
+.bg-orb-a {
+  width: 280px;
+  height: 280px;
+  top: 18%;
+  right: 6%;
+  background: #6ac7be;
+}
+
+.bg-orb-b {
+  width: 240px;
+  height: 240px;
+  left: 8%;
+  bottom: 10%;
+  background: #f0a265;
+}
+
+.layout {
+  width: min(1120px, 94vw);
+  margin: 2.2rem auto;
+  display: grid;
+  gap: 1rem;
+}
+
+.hero {
+  padding: 1.2rem 0.2rem;
+}
+
+.hero h1 {
+  margin: 0.2rem 0;
+  font-size: clamp(1.7rem, 3.6vw, 2.8rem);
+  letter-spacing: -0.03em;
+}
+
+.subhead {
+  color: var(--muted);
+  margin: 0.2rem 0 0;
+  max-width: 62ch;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: #215168;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 1rem;
+  box-shadow: 0 8px 30px rgba(11, 31, 47, 0.08);
+  backdrop-filter: blur(8px);
+}
+
+.panel h2 {
+  margin: 0.2rem 0 0.8rem;
+}
+
+.panel h3 {
+  margin: 0.4rem 0;
+  font-size: 1rem;
+}
+
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+label {
+  display: grid;
+  gap: 0.35rem;
+  font-weight: 500;
+}
+
+input[type="text"],
+input[type="number"] {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.7rem;
+  font: inherit;
+  background: #fcfdff;
+}
+
+.checkbox {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.btn {
+  border: 0;
+  border-radius: 12px;
+  padding: 0.62rem 0.92rem;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  transform: none;
+  opacity: 0.5;
+}
+
+.btn.primary {
+  background: var(--primary);
+  color: var(--primary-ink);
+}
+
+.btn.ghost {
+  background: transparent;
+  border: 1px solid var(--line);
+}
+
+.btn.accent {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  margin: 0.35rem 0 0.85rem;
+}
+
+.banner {
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 0.52rem 0.7rem;
+  font-size: 0.95rem;
+}
+
+.banner.info {
+  background: #f2f9fb;
+}
+
+.banner.warn {
+  background: #fff6ec;
+  border-color: #f0c89d;
+}
+
+.banner.error {
+  background: #fff2f4;
+  border-color: #f1a3b4;
+}
+
+.mono {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.small {
+  font-size: 0.85rem;
+}
+
+.exam-list {
+  display: grid;
+  gap: 0.7rem;
+  margin-bottom: 0.8rem;
+}
+
+.question {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.72rem;
+  background: #ffffff;
+}
+
+.q-head {
+  margin-bottom: 0.45rem;
+  color: #1d4458;
+  font-weight: 700;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.5rem;
+  align-items: start;
+  margin: 0.28rem 0;
+}
+
+.grid-two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+}
+
+.result-list {
+  margin: 0.25rem 0 0.1rem 1.05rem;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.grounded-list {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.grounded-item {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.7rem;
+  background: #fcfdff;
+}
+
+.reveal {
+  animation: slideFade 420ms ease both;
+}
+
+@keyframes slideFade {
+  from {
+    opacity: 0;
+    transform: translateY(7px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 860px) {
+  .layout {
+    width: min(760px, 94vw);
+  }
+
+  .grid-two {
+    grid-template-columns: 1fr;
+  }
+}

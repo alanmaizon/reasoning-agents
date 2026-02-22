@@ -3,10 +3,18 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Any, Callable, List, Tuple, TypeVar
+import os
+from pathlib import Path
+import logging
+from time import perf_counter
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request, Security
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
+from starlette.responses import FileResponse
+from starlette.staticfiles import StaticFiles
 
 from .agents.coach import run_coach
 from .agents.examiner import run_examiner
@@ -23,7 +31,13 @@ from .models.schemas import (
     StudentAnswerSheet,
 )
 from .models.state import StudentState
+from .observability.logging_setup import configure_logging
 from .orchestration.state_store import StateStore
+from .security.entra_auth import (
+    EntraForbiddenError,
+    EntraUnauthorizedError,
+    build_entra_validator,
+)
 
 
 app = FastAPI(
@@ -32,7 +46,12 @@ app = FastAPI(
     version="1.0.0",
 )
 
+_WEB_DIR = Path(__file__).resolve().parent / "web"
+app.mount("/web", StaticFiles(directory=_WEB_DIR), name="web")
+
 T = TypeVar("T")
+_bearer_scheme = HTTPBearer(auto_error=False)
+_http_logger = logging.getLogger("mdt.http")
 
 
 class StartSessionRequest(BaseModel):
@@ -68,6 +87,14 @@ class SubmitSessionResponse(BaseModel):
     state: StudentState
 
 
+class FrontendConfigResponse(BaseModel):
+    auth_enabled: bool
+    tenant_id: Optional[str] = None
+    authority: Optional[str] = None
+    client_id: Optional[str] = None
+    api_scope: Optional[str] = None
+
+
 @lru_cache(maxsize=1)
 def _state_store() -> StateStore:
     return StateStore()
@@ -76,6 +103,63 @@ def _state_store() -> StateStore:
 @lru_cache(maxsize=1)
 def _cached_foundry_runner():
     return get_foundry_runner()
+
+
+@lru_cache(maxsize=1)
+def _token_validator():
+    return build_entra_validator()
+
+
+def _authorize_v1(
+    creds: Optional[HTTPAuthorizationCredentials] = Security(_bearer_scheme),
+) -> Optional[Dict[str, Any]]:
+    try:
+        validator = _token_validator()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Authentication is misconfigured: {exc}",
+        ) from exc
+
+    if validator is None:
+        return None
+    if creds is None or not creds.credentials:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing bearer token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        return validator.validate_token(creds.credentials)
+    except EntraForbiddenError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except EntraUnauthorizedError as exc:
+        raise HTTPException(
+            status_code=401,
+            detail=str(exc),
+            headers={"WWW-Authenticate": "Bearer"},
+        ) from exc
+
+
+def _frontend_api_scope() -> Optional[str]:
+    explicit = os.environ.get("FRONTEND_API_SCOPE")
+    if explicit:
+        return explicit.strip()
+
+    raw_audiences = (
+        os.environ.get("ENTRA_AUDIENCE")
+        or os.environ.get("ENTRA_AUDIENCES")
+        or ""
+    )
+    audience = next((a.strip() for a in raw_audiences.split(",") if a.strip()), "")
+    required_scope = next(
+        (s.strip() for s in os.environ.get("ENTRA_REQUIRED_SCOPES", "").split(",") if s.strip()),
+        "",
+    )
+    if audience.startswith("api://") and required_scope:
+        return f"{audience}/{required_scope}"
+    return None
 
 
 def _resolve_runtime(force_offline: bool) -> Tuple[bool, Any]:
@@ -112,13 +196,101 @@ def healthz() -> dict:
     return {"status": "ok"}
 
 
+@app.on_event("startup")
+def _startup_observability() -> None:
+    configure_logging()
+    logging.getLogger("mdt.api").info(
+        "api_startup",
+        extra={"event": "api_startup"},
+    )
+
+
+@app.middleware("http")
+async def _request_logging(
+    request: Request, call_next: Callable[..., Any]
+):
+    request_id = request.headers.get("x-request-id") or uuid4().hex
+    started = perf_counter()
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        _http_logger.exception(
+            "request_failed",
+            extra={
+                "event": "request_failed",
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": 500,
+                "duration_ms": duration_ms,
+                "client_ip": client_ip,
+                "user_agent": user_agent,
+            },
+        )
+        raise
+
+    duration_ms = round((perf_counter() - started) * 1000, 2)
+    response.headers["x-request-id"] = request_id
+    _http_logger.info(
+        "request_completed",
+        extra={
+            "event": "request_completed",
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "status_code": response.status_code,
+            "duration_ms": duration_ms,
+            "client_ip": client_ip,
+            "user_agent": user_agent,
+        },
+    )
+    return response
+
+
+@app.get("/", include_in_schema=False)
+def web_index() -> FileResponse:
+    return FileResponse(_WEB_DIR / "index.html")
+
+
+@app.get("/frontend-config", response_model=FrontendConfigResponse)
+def frontend_config() -> FrontendConfigResponse:
+    auth_enabled = str(os.environ.get("ENTRA_AUTH_ENABLED", "")).strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    tenant_id = os.environ.get("ENTRA_TENANT_ID")
+    authority = os.environ.get("FRONTEND_AUTHORITY")
+    if not authority and tenant_id:
+        authority = f"https://login.microsoftonline.com/{tenant_id}"
+
+    return FrontendConfigResponse(
+        auth_enabled=auth_enabled,
+        tenant_id=tenant_id,
+        authority=authority,
+        client_id=os.environ.get("FRONTEND_CLIENT_ID"),
+        api_scope=_frontend_api_scope(),
+    )
+
+
 @app.get("/v1/state/{user_id}", response_model=StudentState)
-def get_state(user_id: str) -> StudentState:
+def get_state(
+    user_id: str,
+    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+) -> StudentState:
     return _state_store().load(user_id)
 
 
 @app.post("/v1/session/start", response_model=StartSessionResponse)
-def start_session(req: StartSessionRequest) -> StartSessionResponse:
+def start_session(
+    req: StartSessionRequest,
+    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+) -> StartSessionResponse:
     state = _state_store().load(req.user_id)
     state.preferred_minutes = req.minutes
 
@@ -191,7 +363,10 @@ def start_session(req: StartSessionRequest) -> StartSessionResponse:
 
 
 @app.post("/v1/session/submit", response_model=SubmitSessionResponse)
-def submit_session(req: SubmitSessionRequest) -> SubmitSessionResponse:
+def submit_session(
+    req: SubmitSessionRequest,
+    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+) -> SubmitSessionResponse:
     state = _state_store().load(req.user_id)
     warnings: List[str] = []
 
@@ -306,4 +481,3 @@ def submit_session(req: SubmitSessionRequest) -> SubmitSessionResponse:
         coaching=coaching,
         state=state,
     )
-

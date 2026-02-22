@@ -19,11 +19,47 @@ def _sanitize_user_id(user_id: str) -> str:
     return cleaned or "default"
 
 
+def _normalize_table_name(name: str) -> str:
+    candidate = (name or "").strip()
+    if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", candidate):
+        return candidate
+    return "student_state"
+
+
+def _build_pg_conninfo() -> Optional[str]:
+    dsn = os.environ.get("POSTGRES_DSN") or os.environ.get("DATABASE_URL")
+    if dsn:
+        return dsn
+
+    host = os.environ.get("POSTGRES_HOST")
+    dbname = os.environ.get("POSTGRES_DB")
+    user = os.environ.get("POSTGRES_USER")
+    password = os.environ.get("POSTGRES_PASSWORD")
+    if not (host and dbname and user and password):
+        return None
+
+    port = os.environ.get("POSTGRES_PORT", "5432")
+    sslmode = os.environ.get("POSTGRES_SSLMODE", "require")
+    return (
+        f"host={host} "
+        f"port={port} "
+        f"dbname={dbname} "
+        f"user={user} "
+        f"password={password} "
+        f"sslmode={sslmode}"
+    )
+
+
 class StateStore:
-    """Load/save student state from Azure Blob (if configured) or local disk."""
+    """Load/save student state from Postgres, Blob, or local disk."""
 
     def __init__(self) -> None:
         self._local_dir = Path(os.environ.get("STATE_DIR", ".data/state"))
+        self._pg_conninfo = _build_pg_conninfo()
+        self._pg_table = _normalize_table_name(
+            os.environ.get("STATE_PG_TABLE", "student_state")
+        )
+        self._pg_schema_ready = False
         self._conn_str = os.environ.get("AZURE_STORAGE_CONNECTION_STRING")
         self._container_name = os.environ.get(
             "AZURE_STORAGE_CONTAINER", "mdt-data"
@@ -32,7 +68,9 @@ class StateStore:
 
     def load(self, user_id: str) -> StudentState:
         key = _sanitize_user_id(user_id)
-        payload = self._load_blob_payload(key) if self._conn_str else None
+        payload = self._load_pg_payload(key) if self._pg_conninfo else None
+        if payload is None and self._conn_str:
+            payload = self._load_blob_payload(key)
         if payload is None:
             payload = self._load_local_payload(key)
 
@@ -46,6 +84,8 @@ class StateStore:
     def save(self, user_id: str, state: StudentState) -> None:
         key = _sanitize_user_id(user_id)
         payload = state.model_dump()
+        if self._pg_conninfo and self._save_pg_payload(key, payload):
+            return
         if self._conn_str and self._save_blob_payload(key, payload):
             return
         self._save_local_payload(key, payload)
@@ -71,6 +111,99 @@ class StateStore:
 
     def _blob_name(self, key: str) -> str:
         return f"{self._blob_prefix}/{key}.json"
+
+    def _get_pg_connection(self):
+        if not self._pg_conninfo:
+            return None
+        try:
+            import psycopg
+        except ImportError:
+            return None
+        try:
+            return psycopg.connect(self._pg_conninfo, autocommit=True)
+        except Exception:
+            return None
+
+    def _ensure_pg_schema(self, conn) -> bool:
+        if self._pg_schema_ready:
+            return True
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    CREATE TABLE IF NOT EXISTS {self._pg_table} (
+                        user_id TEXT PRIMARY KEY,
+                        state JSONB NOT NULL,
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                    """
+                )
+            self._pg_schema_ready = True
+            return True
+        except Exception:
+            return False
+
+    def _load_pg_payload(self, key: str) -> Optional[Dict[str, Any]]:
+        conn = self._get_pg_connection()
+        if conn is None:
+            return None
+
+        try:
+            if not self._ensure_pg_schema(conn):
+                return None
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT state FROM {self._pg_table} WHERE user_id = %s",
+                    (key,),
+                )
+                row = cur.fetchone()
+            if not row:
+                return None
+
+            raw = row[0]
+            if isinstance(raw, dict):
+                return raw
+            if isinstance(raw, (bytes, bytearray)):
+                return json.loads(raw.decode("utf-8"))
+            if isinstance(raw, str):
+                return json.loads(raw)
+            return None
+        except Exception:
+            return None
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def _save_pg_payload(self, key: str, payload: Dict[str, Any]) -> bool:
+        conn = self._get_pg_connection()
+        if conn is None:
+            return False
+
+        try:
+            if not self._ensure_pg_schema(conn):
+                return False
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    INSERT INTO {self._pg_table} (user_id, state, updated_at)
+                    VALUES (%s, %s::jsonb, NOW())
+                    ON CONFLICT (user_id)
+                    DO UPDATE SET
+                      state = EXCLUDED.state,
+                      updated_at = NOW()
+                    """,
+                    (key, json.dumps(payload, ensure_ascii=False)),
+                )
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     def _get_blob_container_client(self):
         if not self._conn_str:

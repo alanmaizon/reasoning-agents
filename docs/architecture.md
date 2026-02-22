@@ -28,10 +28,16 @@ flowchart LR
 
 Hosted mode uses `src/api.py` (FastAPI):
 
+- `GET /` — built-in frontend shell
+- `GET /frontend-config` — frontend runtime auth config
 - `GET /healthz` — health endpoint
 - `GET /v1/state/{user_id}` — fetch student state
 - `POST /v1/session/start` — generate plan + exam
 - `POST /v1/session/submit` — diagnose answers, ground explanations, produce coaching
+
+Authentication:
+- `/healthz` is always public.
+- `/v1/*` can require Microsoft Entra bearer tokens when `ENTRA_AUTH_ENABLED=true`.
 
 ## Misconception Taxonomy
 
@@ -74,11 +80,20 @@ Purpose:
 - Provide basic rate-limit/cost protection
 - Speed up repeated queries
 
+## Observability
+
+- API emits structured logs (JSON by default) with request IDs.
+- `/healthz` is used by deployment checks and synthetic monitoring.
+- Azure VM telemetry is routed to Log Analytics via Azure Monitor Agent + DCR.
+- API availability can be monitored with an Application Insights web test.
+- Ops runbook: `docs/runbook_ops.md`
+
 ## State Persistence
 
 Student state is persisted per user:
-- Azure Blob (`STATE_BLOB_PREFIX/<user>.json`) in hosted mode
-- Local `.data/state/<user>.json` fallback
+- PostgreSQL (`student_state` table) when DB variables are configured
+- Azure Blob (`STATE_BLOB_PREFIX/<user>.json`) fallback in hosted mode
+- Local `.data/state/<user>.json` fallback when DB/Blob are unavailable
 
 ## Reasoning Patterns
 
@@ -89,6 +104,7 @@ Student state is persisted per user:
 ## Security
 
 - Secrets stored in `.env` (never committed; `.gitignore` enforced)
+- Optional Entra JWT auth validates issuer, audience, signature (JWKS), and expiry for `/v1/*`
 - Tool allow-listing prevents unauthorized MCP tool use
 - JSON-only communication between agents (schema-validated with Pydantic)
 - Citation grounding prevents hallucinated explanations

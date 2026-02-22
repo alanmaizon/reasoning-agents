@@ -64,6 +64,9 @@ uvicorn src.api:app --reload --port 8000
 
 # Health check
 curl http://127.0.0.1:8000/healthz
+
+# Open built-in frontend
+open http://127.0.0.1:8000/
 ```
 
 Example session calls:
@@ -96,11 +99,37 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 |----------|----------|-------------|
 | `AZURE_AI_PROJECT_ENDPOINT` | For online mode | Azure AI Foundry project endpoint |
 | `AZURE_AI_MODEL_DEPLOYMENT_NAME` | For online mode | Model deployment name (e.g., `gpt-4o`) |
+| `APP_LOG_LEVEL` | Optional | Runtime log level (default: `INFO`) |
+| `APP_LOG_FORMAT` | Optional | `json` (default) or `plain` |
+| `ENTRA_AUTH_ENABLED` | Optional | Enables Microsoft Entra ID bearer token auth on `/v1/*` routes |
+| `ENTRA_TENANT_ID` | Required if auth enabled | Entra tenant ID used for OpenID metadata discovery |
+| `ENTRA_AUDIENCE` / `ENTRA_AUDIENCES` | Required if auth enabled | Accepted token audience(s), comma-separated |
+| `ENTRA_REQUIRED_SCOPES` | Optional | Required delegated scopes, comma-separated |
+| `ENTRA_REQUIRED_ROLES` | Optional | Required app roles, comma-separated |
+| `ENTRA_ISSUER` / `ENTRA_ISSUERS` | Optional | Override allowed issuer(s), comma-separated when multiple |
+| `ENTRA_JWKS_URI` | Optional | Override JWKS endpoint URL |
+| `FRONTEND_CLIENT_ID` | Recommended when auth enabled | SPA app registration client ID used by built-in frontend |
+| `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (default derives from `ENTRA_TENANT_ID`) |
+| `FRONTEND_API_SCOPE` | Recommended when auth enabled | Scope requested by frontend (e.g. `api://<api-app-id>/api.access`) |
 | `MCP_PROJECT_CONNECTION_NAME` | Optional | MCP connection name if required |
-| `AZURE_STORAGE_CONNECTION_STRING` | Optional | Enables Azure Blob persistence for state/cache |
+| `POSTGRES_DSN` / `DATABASE_URL` | Optional | PostgreSQL DSN for primary state persistence |
+| `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE` | Optional | PostgreSQL discrete connection settings (used when DSN is absent) |
+| `STATE_PG_TABLE` | Optional | PostgreSQL table name for user state (default: `student_state`) |
+| `AZURE_STORAGE_CONNECTION_STRING` | Optional | Enables Azure Blob fallback for state/cache |
 | `AZURE_STORAGE_CONTAINER` | Optional | Blob container name (default: `mdt-data`) |
 | `STATE_BLOB_PREFIX` | Optional | Blob prefix for student state (default: `state`) |
 | `CACHE_BLOB_NAME` | Optional | Blob path for cache JSON (default: `cache/cache.json`) |
+| `STATE_DIR` | Optional | Local fallback state directory (default: `.data/state`) |
+
+State persistence priority in hosted mode:
+- PostgreSQL (if configured)
+- Azure Blob Storage (if configured)
+- Local disk fallback (`STATE_DIR`)
+
+Authentication behavior:
+- `/healthz` stays public
+- `/v1/*` is protected only when `ENTRA_AUTH_ENABLED=true`
+- `/` serves the built-in frontend shell
 
 ## Project Structure
 
@@ -116,10 +145,13 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 │   └── workflows/
 │       └── deploy_vm.yml         # CI/CD deploy to Azure VM on push to main
 ├── scripts/
-│   └── azure/
-│       ├── deploy_webapp.sh       # Azure App Service deployment
-│       ├── deploy_webapp_code.sh  # App Service code-only deployment
-│       └── deploy_vm_code.sh      # Azure VM deployment over SSH
+│   ├── azure/
+│   │   ├── deploy_webapp.sh       # Azure App Service deployment
+│   │   ├── deploy_webapp_code.sh  # App Service code-only deployment
+│   │   ├── deploy_vm_code.sh      # Azure VM deployment over SSH
+│   │   └── setup_observability.sh # Azure Monitor + alert setup for VM
+│   └── security/
+│       └── check_secret_leaks.sh  # Tracked-file secret leak guard
 ├── src/
 │   ├── main.py                    # CLI entrypoint
 │   ├── api.py                     # FastAPI app entrypoint
@@ -134,10 +166,14 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 │   │   ├── workflow.py            # End-to-end pipeline
 │   │   ├── tool_policy.py         # MCP tool allow-list
 │   │   ├── cache.py               # URL-based doc cache (Blob/local)
-│   │   └── state_store.py         # Per-user state persistence (Blob/local)
+│   │   └── state_store.py         # Per-user state persistence (Postgres/Blob/local)
 │   ├── models/
 │   │   ├── schemas.py             # Pydantic data models
 │   │   └── state.py               # Student state persistence
+│   ├── web/
+│   │   ├── index.html             # Built-in frontend shell
+│   │   ├── app.js                 # Frontend logic + API calls
+│   │   └── styles.css             # Frontend styles
 │   └── util/
 │       ├── jsonio.py              # JSON I/O + defensive parsing
 │       └── console.py             # Rich CLI formatting
@@ -148,6 +184,7 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 │   └── online_eval_stub.py        # Online evaluation placeholder
 └── docs/
     ├── architecture.md            # Detailed architecture docs
+    ├── runbook_ops.md             # Start/stop/recovery operations runbook
     └── demo.md                    # 90-second demo script
 ```
 
@@ -163,7 +200,7 @@ pytest eval/test_offline_eval.py -v
 1. Set deployment variables in your shell:
    - `RESOURCE_GROUP`, `LOCATION`, `ACR_NAME`, `APP_SERVICE_PLAN`, `WEBAPP_NAME`
    - `AZURE_AI_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME`
-   - Optional: `MCP_PROJECT_CONNECTION_NAME`, `AZURE_STORAGE_CONNECTION_STRING`
+   - Optional: `MCP_PROJECT_CONNECTION_NAME`, PostgreSQL vars, `AZURE_STORAGE_CONNECTION_STRING`
 2. Run deployment:
 
 ```bash
@@ -221,16 +258,43 @@ Example health check URL:
 https://<your-domain>/healthz
 ```
 
+## Observability Setup (VM)
+
+```bash
+export RESOURCE_GROUP=<resource-group>
+export LOCATION=swedencentral
+export VM_NAME=<vm-name>
+export HEALTHCHECK_URL=https://<your-domain>/healthz
+export ALERT_EMAIL=<your-email>
+bash scripts/azure/setup_observability.sh
+```
+
+This provisions:
+- Log Analytics workspace
+- Application Insights component + health web test
+- Azure Monitor Agent + data collection rule on VM
+- Action group + baseline alerts
+
+Operations runbook: `docs/runbook_ops.md`
+
 ## Safety & Security
 
 | Concern | Mitigation |
 |---------|-----------|
 | **Secrets** | `.env` in `.gitignore`; `.env.example` provided |
+| **API auth** | Optional Entra ID JWT validation on `/v1/*` (issuer, audience, signature, expiry) |
 | **Tool allow-listing** | Only read-only Learn MCP tools are permitted (`microsoft_docs_search`, `microsoft_docs_fetch`, `microsoft_code_sample_search`) |
 | **Citation grounding** | Every explanation requires ≥1 citation; fallback: "Insufficient evidence" |
 | **Schema validation** | Pydantic enforces JSON contracts between all agents |
 | **Rate limiting** | Disk-backed URL cache; quiz capped at 12 questions |
 | **Defensive parsing** | JSON extraction handles markdown fences, retries on non-JSON |
+
+### Secret Hygiene
+
+- Keep real secrets only in runtime environment files (`.env`, `/etc/mdt-api.env`, GitHub Secrets), never in tracked files.
+- CI enforces a lightweight leak guard via `scripts/security/check_secret_leaks.sh`.
+- Prefer managed identity auth over static API keys when possible.
+- Rotate DB credentials periodically and after any suspected exposure.
 
 ## MCP Grounding
 
