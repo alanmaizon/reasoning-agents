@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from functools import lru_cache
 import os
 from pathlib import Path
@@ -40,10 +41,21 @@ from .security.entra_auth import (
 )
 
 
+@asynccontextmanager
+async def _app_lifespan(_: FastAPI):
+    configure_logging()
+    logging.getLogger("mdt.api").info(
+        "api_startup",
+        extra={"event": "api_startup"},
+    )
+    yield
+
+
 app = FastAPI(
     title="MDT API",
     description="Misconception-Driven Tutor API for AZ-900 prep",
     version="1.0.0",
+    lifespan=_app_lifespan,
 )
 
 _WEB_DIR = Path(__file__).resolve().parent / "web"
@@ -194,15 +206,6 @@ def _run_stage(
 @app.get("/healthz")
 def healthz() -> dict:
     return {"status": "ok"}
-
-
-@app.on_event("startup")
-def _startup_observability() -> None:
-    configure_logging()
-    logging.getLogger("mdt.api").info(
-        "api_startup",
-        extra={"event": "api_startup"},
-    )
 
 
 @app.middleware("http")
