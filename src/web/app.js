@@ -7,6 +7,14 @@ const state = {
   answers: {},
 };
 
+const MSAL_SOURCES = [
+  "/web/vendor/msal-browser.min.js",
+  "https://cdn.jsdelivr.net/npm/@azure/msal-browser@5.2.0/lib/msal-browser.min.js",
+  "https://unpkg.com/@azure/msal-browser@5.2.0/lib/msal-browser.min.js",
+];
+
+let msalLoadPromise = null;
+
 const el = {
   authBanner: document.getElementById("authBanner"),
   authMeta: document.getElementById("authMeta"),
@@ -24,6 +32,57 @@ const el = {
   lessonList: document.getElementById("lessonList"),
   groundedList: document.getElementById("groundedList"),
 };
+
+function hasMsal() {
+  return Boolean(window.msal?.PublicClientApplication);
+}
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = src;
+    script.async = true;
+    script.crossOrigin = "anonymous";
+    script.referrerPolicy = "no-referrer";
+    script.onload = () => resolve(src);
+    script.onerror = () => {
+      script.remove();
+      reject(new Error(`Failed to load script: ${src}`));
+    };
+    document.head.appendChild(script);
+  });
+}
+
+async function ensureMsalLoaded() {
+  if (hasMsal()) {
+    return;
+  }
+  if (!msalLoadPromise) {
+    msalLoadPromise = (async () => {
+      let lastError = null;
+      for (const src of MSAL_SOURCES) {
+        try {
+          await loadScript(src);
+          if (hasMsal()) {
+            return;
+          }
+          lastError = new Error(`MSAL namespace missing after loading: ${src}`);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError || new Error("Unable to load MSAL library.");
+    })();
+  }
+
+  try {
+    await msalLoadPromise;
+  } finally {
+    if (!hasMsal()) {
+      msalLoadPromise = null;
+    }
+  }
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -209,8 +268,14 @@ async function initAuth() {
     return;
   }
 
-  if (!window.msal?.PublicClientApplication) {
-    setBanner("error", "MSAL failed to load.");
+  setBanner("info", "Loading authentication library...");
+  try {
+    await ensureMsalLoaded();
+  } catch (err) {
+    setBanner(
+      "error",
+      `MSAL failed to load from available sources. ${err.message}`
+    );
     setFormsEnabled(false);
     return;
   }
