@@ -5,6 +5,7 @@ const state = {
   account: null,
   exam: null,
   answers: {},
+  authBusy: false,
 };
 
 const MSAL_SOURCES = [
@@ -126,6 +127,24 @@ function setFormsEnabled(enabled) {
   }
 }
 
+function msalErrorCode(err) {
+  if (!err || typeof err !== "object") {
+    return "";
+  }
+  return String(err.errorCode || err.code || "").toLowerCase();
+}
+
+function isMsalError(err, ...codes) {
+  const code = msalErrorCode(err);
+  return codes.some((c) => code === String(c).toLowerCase());
+}
+
+function setAuthBusy(busy) {
+  state.authBusy = busy;
+  el.loginBtn.disabled = busy;
+  el.logoutBtn.disabled = busy;
+}
+
 async function apiJson(path, payload) {
   const headers = { "Content-Type": "application/json" };
   if (state.config.auth_enabled) {
@@ -235,9 +254,26 @@ async function ensureToken() {
   try {
     const tokenResult = await state.msal.acquireTokenSilent(request);
     state.token = tokenResult.accessToken;
-  } catch {
-    const tokenResult = await state.msal.acquireTokenPopup(request);
-    state.token = tokenResult.accessToken;
+  } catch (err) {
+    if (isMsalError(err, "interaction_in_progress")) {
+      throw new Error(
+        "Authentication already in progress. Finish the open sign-in tab and retry."
+      );
+    }
+    if (
+      isMsalError(
+        err,
+        "interaction_required",
+        "login_required",
+        "consent_required",
+        "no_tokens_found",
+        "token_refresh_required"
+      )
+    ) {
+      await state.msal.acquireTokenRedirect(request);
+      throw new Error("Redirecting to complete token request...");
+    }
+    throw err;
   }
 }
 
@@ -245,16 +281,28 @@ async function handleLogin() {
   if (!state.msal) {
     throw new Error("MSAL is not initialized.");
   }
-  const loginResult = await state.msal.loginPopup({
-    scopes: [state.config.api_scope],
-    prompt: "select_account",
-  });
-  state.account = loginResult.account;
-  state.token = null;
-  await ensureToken();
-  setAuthMeta();
-  setBanner("info", "Authentication successful.");
-  setFormsEnabled(true);
+  if (state.authBusy) {
+    throw new Error("Authentication already in progress.");
+  }
+
+  setAuthBusy(true);
+  setBanner("info", "Redirecting to Microsoft sign-in...");
+  setFormsEnabled(false);
+  try {
+    await state.msal.loginRedirect({
+      scopes: [state.config.api_scope],
+      prompt: "select_account",
+    });
+  } catch (err) {
+    if (isMsalError(err, "interaction_in_progress")) {
+      throw new Error(
+        "Sign-in already in progress. Complete the existing login tab."
+      );
+    }
+    throw err;
+  } finally {
+    setAuthBusy(false);
+  }
 }
 
 async function initAuth() {
@@ -303,17 +351,40 @@ async function initAuth() {
     return;
   }
 
-  const accounts = state.msal.getAllAccounts();
-  if (accounts.length > 0) {
-    state.account = accounts[0];
-    try {
-      await ensureToken();
-      setBanner("info", "Authenticated session restored.");
-      setFormsEnabled(true);
-    } catch {
-      setBanner("warn", "Session found but token refresh failed. Please sign in again.");
-      setFormsEnabled(false);
+  let redirectResult = null;
+  try {
+    redirectResult = await state.msal.handleRedirectPromise();
+  } catch (err) {
+    if (isMsalError(err, "interaction_in_progress")) {
+      setBanner(
+        "warn",
+        "Authentication is still in progress. Finish sign-in in the opened tab and refresh."
+      );
+    } else {
+      setBanner("error", `Failed to process auth redirect: ${err.message}`);
     }
+    setFormsEnabled(false);
+    setAuthMeta();
+    return;
+  }
+
+  if (redirectResult?.account) {
+    state.account = redirectResult.account;
+    state.token = redirectResult.accessToken || null;
+  }
+
+  const accounts = state.msal.getAllAccounts();
+  if (!state.account && accounts.length > 0) {
+    state.account = accounts[0];
+  }
+
+  if (state.account) {
+    if (redirectResult?.account) {
+      setBanner("info", "Authentication successful.");
+    } else {
+      setBanner("info", "Authenticated session restored.");
+    }
+    setFormsEnabled(true);
   } else {
     setBanner("warn", "Auth enabled. Sign in to use /v1 endpoints.");
     setFormsEnabled(false);
@@ -391,21 +462,29 @@ function bindEvents() {
     try {
       await handleLogin();
     } catch (err) {
+      if (err.message?.startsWith("Redirecting")) {
+        setBanner("info", err.message);
+        return;
+      }
       setBanner("error", `Login failed: ${err.message}`);
     }
   });
   el.logoutBtn.addEventListener("click", async () => {
     state.token = null;
     state.account = null;
+    setAuthBusy(true);
     setFormsEnabled(!state.config.auth_enabled);
     setAuthMeta();
-    if (state.msal?.logoutPopup) {
+    if (state.msal?.logoutRedirect) {
       try {
-        await state.msal.logoutPopup();
+        await state.msal.logoutRedirect({
+          postLogoutRedirectUri: window.location.origin + "/",
+        });
       } catch {
         // Ignore local logout errors.
       }
     }
+    setAuthBusy(false);
     setBanner("warn", "Signed out.");
   });
 }
