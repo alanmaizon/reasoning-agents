@@ -43,6 +43,7 @@ const el = {
   planMeta: document.getElementById("planMeta"),
   examContainer: document.getElementById("examContainer"),
   submitBtn: document.getElementById("submitBtn"),
+  coachingPanel: document.getElementById("coachingPanel"),
   resultsPlaceholder: document.getElementById("resultsPlaceholder"),
   evaluationSection: document.getElementById("evaluationSection"),
   answerReviewSection: document.getElementById("answerReviewSection"),
@@ -181,8 +182,14 @@ function escapeHtml(value) {
 }
 
 function setBanner(kind, message) {
+  el.authBanner.classList.remove("is-hidden");
   el.authBanner.className = `banner ${kind}`;
   el.authBanner.textContent = message;
+}
+
+function hideBanner() {
+  el.authBanner.classList.add("is-hidden");
+  el.authBanner.textContent = "";
 }
 
 function syncAuthActions() {
@@ -270,6 +277,11 @@ function setFormsEnabled(enabled) {
 function setPlanExamVisible(visible) {
   el.planExamPanel.classList.toggle("is-hidden", !visible);
   el.planExamPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+function setCoachingPanelVisible(visible) {
+  el.coachingPanel.classList.toggle("is-hidden", !visible);
+  el.coachingPanel.setAttribute("aria-hidden", visible ? "false" : "true");
 }
 
 function setResultsVisibility(visible) {
@@ -820,7 +832,7 @@ async function initAuth() {
     }
     setFormsEnabled(true);
   } else {
-    setBanner("warn", "Auth enabled. Sign in to use /v1 endpoints.");
+    hideBanner();
     setFormsEnabled(false);
   }
   setAuthMeta();
@@ -851,6 +863,7 @@ async function startSession(event) {
     state.planMetaBase = `Mode: ${modeText} | Plan domains: ${domains || "n/a"} | Questions: ${result.exam?.questions?.length || 0}`;
     el.planMeta.textContent = state.planMetaBase;
     setPlanExamVisible(true);
+    setCoachingPanelVisible(false);
     renderExam(result.exam);
     clearResults();
     setResultsVisibility(false);
@@ -886,6 +899,7 @@ async function submitSession() {
     renderResults(result);
     renderEvaluationSummary(result?.diagnosis);
     renderAnswerReview(result?.diagnosis);
+    setCoachingPanelVisible(true);
     setResultsVisibility(true);
     state.examSubmitted = true;
     state.submitting = false;
@@ -987,6 +1001,7 @@ async function init() {
   bindEvents();
   syncModeInputs();
   clearResults();
+  setCoachingPanelVisible(false);
   setResultsVisibility(false);
   setSessionStatus("Start a session to unlock the exam panel.");
   setPlanExamVisible(false);
