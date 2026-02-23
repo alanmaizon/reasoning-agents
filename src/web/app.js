@@ -30,7 +30,6 @@ const el = {
   logoutBtn: document.getElementById("logoutBtn"),
   identityDetails: document.getElementById("identityDetails"),
   identityValue: document.getElementById("identityValue"),
-  sessionStatus: document.getElementById("sessionStatus"),
   startForm: document.getElementById("startForm"),
   userId: document.getElementById("userId"),
   userIdRow: document.getElementById("userIdRow"),
@@ -65,12 +64,6 @@ function modeLabel(mode) {
     return "Mock AZ-900 test";
   }
   return "Adaptive coaching";
-}
-
-function setSessionStatus(message) {
-  if (el.sessionStatus) {
-    el.sessionStatus.textContent = message;
-  }
 }
 
 function syncModeInputs() {
@@ -872,7 +865,6 @@ async function startSession(event) {
     setResultsVisibility(false);
     updateQuestionProgress();
     setExamAccessibility(false);
-    setSessionStatus("Session active. Complete the exam and submit to see coaching.");
 
     if ((result.warnings || []).length > 0) {
       setBanner("warn", `Session started with warnings: ${result.warnings.join(" | ")}`);
@@ -908,7 +900,6 @@ async function submitSession() {
     state.submitting = false;
     setExamAccessibility(true, "Answers submitted. Start a new session to edit or retake.");
     setPlanExamVisible(false);
-    setSessionStatus("Session submitted. Start a new session when you want another attempt.");
     setBanner("info", "Submission completed.");
   } catch (err) {
     state.submitting = false;
@@ -1006,7 +997,6 @@ async function init() {
   clearResults();
   setCoachingPanelVisible(false);
   setResultsVisibility(false);
-  setSessionStatus("Start a session to unlock the exam panel.");
   setPlanExamVisible(false);
   setExamAccessibility(false);
   syncUserIdInput();
