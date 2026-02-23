@@ -10,7 +10,8 @@ set -euo pipefail
 # Optional:
 #   DISPLAY_NAME           # default: "Condor External ID"
 #   COUNTRY_CODE           # default: "IE"
-#   LOCATION               # default: "Europe"
+#   DIRECTORY_LOCATION     # default: "Europe" (geo label for b2cDirectories)
+#   RESOURCE_GROUP_LOCATION # default: "swedencentral" (regional Azure location)
 #   API_VERSION            # default: "2019-01-01-preview"
 #
 # Output:
@@ -26,7 +27,9 @@ set -euo pipefail
 
 DISPLAY_NAME="${DISPLAY_NAME:-Condor External ID}"
 COUNTRY_CODE="${COUNTRY_CODE:-IE}"
-LOCATION="${LOCATION:-Europe}"
+# Backward compatibility: if LOCATION is passed, treat it as directory location.
+DIRECTORY_LOCATION="${DIRECTORY_LOCATION:-${LOCATION:-Europe}}"
+RESOURCE_GROUP_LOCATION="${RESOURCE_GROUP_LOCATION:-swedencentral}"
 API_VERSION="${API_VERSION:-2019-01-01-preview}"
 RESOURCE_TYPE="Microsoft.AzureActiveDirectory/b2cDirectories"
 TENANT_DOMAIN="${TENANT_PREFIX}.onmicrosoft.com"
@@ -60,8 +63,13 @@ if [[ "$state" != "Registered" ]]; then
   exit 1
 fi
 
-echo "Creating resource group if needed: ${RESOURCE_GROUP}"
-az group create -n "$RESOURCE_GROUP" -l "$LOCATION" >/dev/null
+if [[ "$(az group exists -n "$RESOURCE_GROUP" -o tsv)" == "true" ]]; then
+  rg_location="$(az group show -n "$RESOURCE_GROUP" --query location -o tsv)"
+  echo "Using existing resource group: ${RESOURCE_GROUP} (${rg_location})"
+else
+  echo "Creating resource group: ${RESOURCE_GROUP} (${RESOURCE_GROUP_LOCATION})"
+  az group create -n "$RESOURCE_GROUP" -l "$RESOURCE_GROUP_LOCATION" >/dev/null
+fi
 
 echo "Checking tenant domain availability: ${TENANT_DOMAIN}"
 check_body="$(jq -nc --arg n "$TENANT_DOMAIN" \
@@ -93,7 +101,7 @@ create_result="$(
     --name "$TENANT_DOMAIN" \
     --resource-type "$RESOURCE_TYPE" \
     --api-version "$API_VERSION" \
-    --location "$LOCATION" \
+    --location "$DIRECTORY_LOCATION" \
     --properties "$create_props" \
     -o json
 )"

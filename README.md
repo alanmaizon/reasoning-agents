@@ -259,7 +259,8 @@ export RESOURCE_GROUP=rg-mdt-data-sc
 export TENANT_PREFIX=condorx$(date +%m%d%H%M%S)
 export DISPLAY_NAME="Condor External ID"
 export COUNTRY_CODE=IE
-export LOCATION=Europe
+export RESOURCE_GROUP_LOCATION=swedencentral
+export DIRECTORY_LOCATION=Europe
 bash scripts/azure/create_external_tenant.sh
 ```
 
