@@ -7,9 +7,10 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
+scanner="rg"
 if ! command -v rg >/dev/null 2>&1; then
-  echo "ripgrep (rg) is required for secret scanning." >&2
-  exit 2
+  scanner="grep"
+  echo "ripgrep (rg) not found; using grep fallback for secret scanning." >&2
 fi
 
 declare -a findings
@@ -19,11 +20,22 @@ scan() {
   local label="$2"
   local out
 
-  out="$(
-    git ls-files -z \
-      | xargs -0 rg -n -H -e "$pattern" \
-      || true
-  )"
+  if [[ "$scanner" == "rg" ]]; then
+    out="$(
+      git ls-files -z -- . ':(exclude)scripts/security/check_secret_leaks.sh' \
+        | xargs -0 rg -n -H -e "$pattern" \
+        || true
+    )"
+  else
+    out="$(
+      git ls-files -z -- . ':(exclude)scripts/security/check_secret_leaks.sh' \
+        | xargs -0 grep -nH -E -- "$pattern" \
+        || true
+    )"
+  fi
+
+  # Ignore commented examples (e.g., .env.example docs).
+  out="$(printf '%s\n' "$out" | grep -E -v '^[^:]+:[0-9]+:[[:space:]]*#' || true)"
 
   if [[ -n "$out" ]]; then
     findings+=("[$label]"$'\n'"$out")
