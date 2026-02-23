@@ -13,7 +13,7 @@ if ! command -v rg >/dev/null 2>&1; then
   echo "ripgrep (rg) not found; using grep fallback for secret scanning." >&2
 fi
 
-declare -a findings
+declare -a findings=()
 
 scan() {
   local pattern="$1"
