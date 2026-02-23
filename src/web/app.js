@@ -527,8 +527,13 @@ async function ensureToken() {
         "token_refresh_required"
       )
     ) {
-      await state.msal.acquireTokenRedirect(request);
-      throw new Error("Redirecting to complete token request...");
+      // CIAM+Google can fail if silent/implicit account hints trigger unsupported params.
+      // Force an explicit account picker flow for interactive token acquisition.
+      await state.msal.acquireTokenRedirect({
+        scopes: [state.config.api_scope],
+        prompt: "select_account",
+      });
+      throw new Error("Redirecting to refresh authentication...");
     }
     throw err;
   }
