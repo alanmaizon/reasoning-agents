@@ -38,7 +38,7 @@ class Plan(BaseModel):
         ..., description="Weight per domain (0-1)"
     )
     target_questions: int = Field(
-        ..., ge=8, le=12, description="Number of questions (8-12)"
+        ..., ge=8, le=60, description="Number of questions (8-60)"
     )
     next_focus: List[str] = Field(
         ..., description="Priority areas for next session"
@@ -62,7 +62,7 @@ class Question(BaseModel):
 
 
 class Exam(BaseModel):
-    questions: List[Question] = Field(..., min_length=8, max_length=12)
+    questions: List[Question] = Field(..., min_length=8, max_length=60)
 
 
 # ── Student answers ────────────────────────────────────────────────

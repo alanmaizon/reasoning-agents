@@ -9,6 +9,7 @@ from ..models.schemas import (
     Diagnosis,
     DiagnosisResult,
     Exam,
+    Question,
     StudentAnswerSheet,
     MISCONCEPTION_IDS,
 )
@@ -35,29 +36,135 @@ Output ONLY valid JSON (no markdown):
 """.format(ids=", ".join(MISCONCEPTION_IDS))
 
 
+DOMAIN_TO_MISCONCEPTION = {
+    "Cloud Concepts": "SRM",
+    "Azure Architecture": "REGION",
+    "Security": "IDAM",
+    "Cost Management": "PRICING",
+    "Governance": "GOV",
+    "Identity": "IDAM",
+    "Azure Services": "SERVICE_SCOPE",
+}
+
+
+def _default_misconception_for_domain(domain: str) -> str:
+    return DOMAIN_TO_MISCONCEPTION.get(domain, "TERMS")
+
+
+def _coerce_confidence(value: Any, default: float) -> float:
+    try:
+        confidence = float(value)
+    except (TypeError, ValueError):
+        return default
+    if confidence < 0.0:
+        return 0.0
+    if confidence > 1.0:
+        return 1.0
+    return confidence
+
+
+def _default_why(
+    question: Question,
+    student_answer: Optional[int],
+    correct: bool,
+) -> str:
+    if correct:
+        return "Correct answer selected."
+    if student_answer is None:
+        return f"No answer provided. Correct answer is choice {question.answer_key + 1}."
+    return (
+        f"Selected choice {student_answer + 1}; "
+        f"correct is choice {question.answer_key + 1}."
+    )
+
+
+def _normalize_misconception_id(raw_id: Any, domain: str) -> str:
+    if isinstance(raw_id, str) and raw_id in MISCONCEPTION_IDS:
+        return raw_id
+    return _default_misconception_for_domain(domain)
+
+
+def _rank_top_misconceptions(results: list[DiagnosisResult]) -> list[str]:
+    counts: dict[str, int] = {}
+    first_seen: dict[str, int] = {}
+    for idx, result in enumerate(results):
+        if result.correct or result.misconception_id is None:
+            continue
+        mid = result.misconception_id
+        counts[mid] = counts.get(mid, 0) + 1
+        first_seen.setdefault(mid, idx)
+    return sorted(
+        counts,
+        key=lambda mid: (-counts[mid], first_seen[mid]),
+    )
+
+
+def _normalize_online_diagnosis(
+    exam: Exam,
+    answers: StudentAnswerSheet,
+    data: Any,
+) -> Diagnosis:
+    raw_results = data.get("results") if isinstance(data, dict) else None
+    by_question_id: dict[str, dict[str, Any]] = {}
+    if isinstance(raw_results, list):
+        for item in raw_results:
+            if not isinstance(item, dict):
+                continue
+            qid = item.get("id")
+            if isinstance(qid, str):
+                by_question_id[qid] = item
+
+    normalized_results: list[DiagnosisResult] = []
+    for question in exam.questions:
+        model_result = by_question_id.get(question.id, {})
+        student_answer = answers.answers.get(question.id)
+        correct = student_answer == question.answer_key
+        default_confidence = 0.9 if correct else 0.75
+        model_correct = model_result.get("correct")
+        trust_model_reasoning = (
+            not isinstance(model_correct, bool) or model_correct == correct
+        )
+        why = model_result.get("why") if trust_model_reasoning else None
+        normalized_results.append(
+            DiagnosisResult(
+                id=question.id,
+                correct=correct,
+                misconception_id=(
+                    None
+                    if correct
+                    else _normalize_misconception_id(
+                        model_result.get("misconception_id"),
+                        question.domain,
+                    )
+                ),
+                why=why.strip()
+                if isinstance(why, str) and why.strip()
+                else _default_why(question, student_answer, correct),
+                confidence=_coerce_confidence(
+                    model_result.get("confidence")
+                    if trust_model_reasoning
+                    else default_confidence,
+                    default_confidence,
+                ),
+            )
+        )
+
+    return Diagnosis(
+        results=normalized_results,
+        top_misconceptions=_rank_top_misconceptions(normalized_results),
+    )
+
+
 def _diagnose_offline(exam: Exam, answers: StudentAnswerSheet) -> Diagnosis:
     """Deterministic offline diagnosis — compare answers to answer_key."""
-    results = []
-    misconception_counts: dict[str, int] = {}
-
-    # Simple domain→misconception mapping for offline mode
-    domain_to_misconception = {
-        "Cloud Concepts": "SRM",
-        "Azure Architecture": "REGION",
-        "Security": "IDAM",
-        "Cost Management": "PRICING",
-        "Governance": "GOV",
-        "Identity": "IDAM",
-        "Azure Services": "SERVICE_SCOPE",
-    }
+    results: list[DiagnosisResult] = []
 
     for q in exam.questions:
         student_ans = answers.answers.get(q.id)
         correct = student_ans == q.answer_key
         mid = None
         if not correct:
-            mid = domain_to_misconception.get(q.domain, "TERMS")
-            misconception_counts[mid] = misconception_counts.get(mid, 0) + 1
+            mid = _default_misconception_for_domain(q.domain)
 
         results.append(
             DiagnosisResult(
@@ -69,9 +176,7 @@ def _diagnose_offline(exam: Exam, answers: StudentAnswerSheet) -> Diagnosis:
             )
         )
 
-    # Rank misconceptions by frequency
-    top = sorted(misconception_counts, key=misconception_counts.get, reverse=True)  # type: ignore[arg-type]
-    return Diagnosis(results=results, top_misconceptions=top)
+    return Diagnosis(results=results, top_misconceptions=_rank_top_misconceptions(results))
 
 
 def run_misconception(
@@ -89,4 +194,4 @@ def run_misconception(
     )
     raw = foundry_run("MisconceptionAgent", MISCONCEPTION_SYSTEM_PROMPT, prompt)
     data = extract_json(raw)
-    return Diagnosis.model_validate(data)
+    return _normalize_online_diagnosis(exam, answers, data)

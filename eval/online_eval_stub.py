@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 def run_online_eval() -> None:
     """Stub for online evaluation pipeline."""
     print("=" * 60)
-    print("MDT Online Evaluation Stub")
+    print("Condor Online Evaluation Stub")
     print("=" * 60)
     print()
     print("This stub is a placeholder for Foundry evaluation integration.")

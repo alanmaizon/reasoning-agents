@@ -1,4 +1,4 @@
-"""HTTP API for hosting MDT as an Azure web service."""
+"""HTTP API for hosting Condor as an Azure web service."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import logging
 from time import perf_counter
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
+from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar
 from uuid import uuid4
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Security
@@ -21,6 +21,7 @@ from .agents.coach import run_coach
 from .agents.examiner import run_examiner
 from .agents.grounding_verifier import run_grounding_verifier
 from .agents.misconception import run_misconception
+from .agents.mock_test import build_mock_test_session
 from .agents.planner import run_planner
 from .foundry_client import get_foundry_runner
 from .models.schemas import (
@@ -52,8 +53,8 @@ async def _app_lifespan(_: FastAPI):
 
 
 app = FastAPI(
-    title="MDT API",
-    description="Misconception-Driven Tutor API for AZ-900 prep",
+    title="Condor API",
+    description="Condor API for AZ-900 prep",
     version="1.0.0",
     lifespan=_app_lifespan,
 )
@@ -70,11 +71,13 @@ class StartSessionRequest(BaseModel):
     user_id: str = Field(default="default", min_length=1, max_length=120)
     focus_topics: List[str] = Field(default_factory=list)
     minutes: int = Field(default=30, ge=1, le=600)
+    mode: Literal["adaptive", "mock_test"] = "adaptive"
     offline: bool = False
 
 
 class StartSessionResponse(BaseModel):
     user_id: str
+    mode: Literal["adaptive", "mock_test"] = "adaptive"
     offline_used: bool
     warnings: List[str] = Field(default_factory=list)
     plan: Plan
@@ -324,57 +327,63 @@ def start_session(
     state.preferred_minutes = req.minutes
 
     warnings: List[str] = []
-    runtime_offline, foundry_run = _resolve_runtime(req.offline)
-    allow_online = not runtime_offline
-    offline_used = runtime_offline
+    if req.mode == "mock_test":
+        plan, exam = build_mock_test_session()
+        offline_used = req.offline
+        if req.focus_topics:
+            warnings.append("Focus topics are ignored in mock_test mode.")
+    else:
+        runtime_offline, foundry_run = _resolve_runtime(req.offline)
+        allow_online = not runtime_offline
+        offline_used = runtime_offline
 
-    def run_plan_online() -> Plan:
-        return run_planner(
-            state=state,
-            focus_topics=req.focus_topics,
-            offline=False,
-            foundry_run=foundry_run,
+        def run_plan_online() -> Plan:
+            return run_planner(
+                state=state,
+                focus_topics=req.focus_topics,
+                offline=False,
+                foundry_run=foundry_run,
+            )
+
+        def run_plan_offline() -> Plan:
+            return run_planner(
+                state=state,
+                focus_topics=req.focus_topics,
+                offline=True,
+                foundry_run=None,
+            )
+
+        plan, used_offline_for_plan = _run_stage(
+            stage_name="Planner",
+            allow_online=allow_online,
+            run_online=run_plan_online,
+            run_offline=run_plan_offline,
+            warnings=warnings,
         )
+        offline_used = offline_used or used_offline_for_plan
 
-    def run_plan_offline() -> Plan:
-        return run_planner(
-            state=state,
-            focus_topics=req.focus_topics,
-            offline=True,
-            foundry_run=None,
+        def run_exam_online() -> Exam:
+            return run_examiner(
+                plan=plan,
+                offline=False,
+                foundry_run=foundry_run,
+            )
+
+        def run_exam_offline() -> Exam:
+            return run_examiner(
+                plan=plan,
+                offline=True,
+                foundry_run=None,
+            )
+
+        exam, used_offline_for_exam = _run_stage(
+            stage_name="Examiner",
+            allow_online=allow_online,
+            run_online=run_exam_online,
+            run_offline=run_exam_offline,
+            warnings=warnings,
         )
-
-    plan, used_offline_for_plan = _run_stage(
-        stage_name="Planner",
-        allow_online=allow_online,
-        run_online=run_plan_online,
-        run_offline=run_plan_offline,
-        warnings=warnings,
-    )
-    offline_used = offline_used or used_offline_for_plan
-
-    def run_exam_online() -> Exam:
-        return run_examiner(
-            plan=plan,
-            offline=False,
-            foundry_run=foundry_run,
-        )
-
-    def run_exam_offline() -> Exam:
-        return run_examiner(
-            plan=plan,
-            offline=True,
-            foundry_run=None,
-        )
-
-    exam, used_offline_for_exam = _run_stage(
-        stage_name="Examiner",
-        allow_online=allow_online,
-        run_online=run_exam_online,
-        run_offline=run_exam_offline,
-        warnings=warnings,
-    )
-    offline_used = offline_used or used_offline_for_exam
+        offline_used = offline_used or used_offline_for_exam
 
     try:
         _state_store().save(req.user_id, state)
@@ -383,6 +392,7 @@ def start_session(
 
     return StartSessionResponse(
         user_id=req.user_id,
+        mode=req.mode,
         offline_used=offline_used,
         warnings=warnings,
         plan=plan,

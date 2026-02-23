@@ -1,1 +1,1 @@
-"""Agent modules for MDT."""
+"""Agent modules for Condor."""

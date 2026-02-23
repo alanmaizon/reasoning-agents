@@ -1,4 +1,4 @@
-"""MDT CLI entrypoint — ``python -m src.main``."""
+"""Condor CLI entrypoint — ``python -m src.main``."""
 
 from __future__ import annotations
 

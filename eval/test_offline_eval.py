@@ -139,7 +139,7 @@ class TestSchemaAdherence:
             Plan(
                 domains=["Security"],
                 weights={"Security": 1.0},
-                target_questions=15,
+                target_questions=61,
                 next_focus=[],
             )
 
@@ -163,14 +163,14 @@ class TestSchemaAdherence:
         )
         assert q.answer_key == 0
 
-    def test_exam_max_12(self):
+    def test_exam_max_60(self):
         questions = [
             Question(
                 id=str(i), domain="d", stem="s",
                 choices=["a", "b"], answer_key=0,
                 rationale_draft="r",
             )
-            for i in range(13)
+            for i in range(61)
         ]
         with pytest.raises(ValidationError):
             Exam(questions=questions)
@@ -347,7 +347,7 @@ class TestOfflineCases:
         case = next(c for c in cases if c["case"] == "schema_adherence_plan")
         plan = Plan.model_validate(case["input"])
         assert case["expected_valid"] is True
-        assert plan.target_questions <= 12
+        assert plan.target_questions <= 60
 
     def test_verifier_rejects_empty_citations(self, cases):
         case = next(c for c in cases if c["case"] == "verifier_rejects_no_citations")

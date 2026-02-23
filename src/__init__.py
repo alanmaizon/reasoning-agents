@@ -1,1 +1,1 @@
-"""MDT — Misconception-Driven Tutor package."""
+"""Condor — AZ-900 reasoning tutor package."""

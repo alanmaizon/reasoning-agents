@@ -1,14 +1,16 @@
-# Architecture — MDT (Misconception-Driven Tutor)
+# Architecture — Condor (AZ-900 Reasoning Tutor)
 
 ## Agents
 
 | Agent | Role | Input | Output |
 |-------|------|-------|--------|
 | **PlannerAgent** | Chooses domains + question mix based on student state | StudentState, focus topics | Plan JSON |
-| **ExaminerAgent** | Generates adaptive diagnostic quiz | Plan | Exam JSON (8-12 Qs) |
+| **ExaminerAgent** | Generates adaptive diagnostic quiz | Plan | Adaptive Exam JSON (8-12 Qs) |
 | **MisconceptionAgent** | Classifies errors into taxonomy, ranks misconceptions | Exam + StudentAnswerSheet | Diagnosis JSON |
 | **GroundingVerifierAgent** | Grounds explanations with Microsoft Learn citations | Question + DiagnosisResult | GroundedExplanation JSON |
 | **CoachAgent** | Generates remediation lessons + micro-drills | Diagnosis + GroundedExplanations | Coaching JSON |
+
+Mock mode (API `mode=mock_test`) uses a randomized bank-driven exam generator that serves 40-60 questions.
 
 ## Data Flow
 

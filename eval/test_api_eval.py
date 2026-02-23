@@ -34,7 +34,7 @@ def test_frontend_shell():
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
-    assert "AZ-900 Coaching Workspace" in response.text
+    assert "Condor AZ-900 Coaching Workspace" in response.text
 
 
 def test_frontend_config_public():
@@ -84,3 +84,25 @@ def test_start_and_submit_offline():
     assert state_response.status_code == 200
     assert state_response.json()["preferred_minutes"] == 20
     assert state_response.headers.get("x-request-id")
+
+
+def test_start_mock_test_mode():
+    client = TestClient(api.app)
+
+    response = client.post(
+        "/v1/session/start",
+        json={
+            "user_id": "api-mock-user",
+            "mode": "mock_test",
+            "focus_topics": ["Governance"],
+            "offline": False,
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "mock_test"
+    q_count = payload["plan"]["target_questions"]
+    assert 40 <= q_count <= 60
+    assert len(payload["exam"]["questions"]) == q_count
+    assert len({q["id"] for q in payload["exam"]["questions"]}) == q_count
+    assert payload["warnings"] == ["Focus topics are ignored in mock_test mode."]

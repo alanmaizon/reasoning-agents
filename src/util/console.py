@@ -13,7 +13,7 @@ console = Console()
 def print_banner() -> None:
     console.print(
         Panel(
-            "[bold cyan]MDT — Misconception-Driven Tutor[/bold cyan]\n"
+            "[bold cyan]Condor — AZ-900 Reasoning Tutor[/bold cyan]\n"
             "[dim]AZ-900 Certification Prep  •  Powered by Microsoft Foundry[/dim]",
             border_style="bright_blue",
         )

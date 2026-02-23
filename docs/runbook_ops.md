@@ -1,6 +1,6 @@
 # Operations Runbook (VM + API)
 
-This runbook covers day-2 operations for the VM-hosted MDT API deployment in Azure.
+This runbook covers day-2 operations for the VM-hosted Condor API deployment in Azure.
 
 ## Scope
 
