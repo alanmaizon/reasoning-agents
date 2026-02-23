@@ -235,6 +235,18 @@ function isGoogleUsernameParamError(err) {
   return text.includes("invalid_request") && text.includes("username");
 }
 
+function interactiveAuthRequest(scope) {
+  const request = {
+    scopes: [scope],
+    prompt: INTERACTIVE_LOGIN_PROMPT,
+  };
+  const idpHint = String(state.config?.idp_hint || "").trim();
+  if (idpHint) {
+    request.extraQueryParameters = { idp: idpHint };
+  }
+  return request;
+}
+
 async function resetCachedAuthState() {
   state.token = null;
   state.account = null;
@@ -542,10 +554,7 @@ async function ensureToken() {
   } catch (err) {
     if (isGoogleUsernameParamError(err)) {
       await resetCachedAuthState();
-      await state.msal.loginRedirect({
-        scopes: [state.config.api_scope],
-        prompt: INTERACTIVE_LOGIN_PROMPT,
-      });
+      await state.msal.loginRedirect(interactiveAuthRequest(state.config.api_scope));
       throw new Error("Google sign-in needs a fresh session. Redirecting...");
     }
     if (isMsalError(err, "interaction_in_progress")) {
@@ -563,12 +572,9 @@ async function ensureToken() {
         "token_refresh_required"
       )
     ) {
-      // CIAM+Google can fail if silent/implicit account hints trigger unsupported params.
-      // Force an explicit account picker flow for interactive token acquisition.
-      await state.msal.acquireTokenRedirect({
-        scopes: [state.config.api_scope],
-        prompt: INTERACTIVE_LOGIN_PROMPT,
-      });
+      await state.msal.acquireTokenRedirect(
+        interactiveAuthRequest(state.config.api_scope)
+      );
       throw new Error("Redirecting to refresh authentication...");
     }
     throw err;
@@ -588,10 +594,7 @@ async function handleLogin() {
   setFormsEnabled(false);
   sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);
   try {
-    await state.msal.loginRedirect({
-      scopes: [state.config.api_scope],
-      prompt: INTERACTIVE_LOGIN_PROMPT,
-    });
+    await state.msal.loginRedirect(interactiveAuthRequest(state.config.api_scope));
   } catch (err) {
     if (isMsalError(err, "interaction_in_progress")) {
       throw new Error(
@@ -665,12 +668,9 @@ async function initAuth() {
         await resetCachedAuthState();
         setBanner(
           "warn",
-          "Google sign-in returned an invalid request. Retrying with account selection..."
+          "Google sign-in returned an invalid request. Retrying..."
         );
-        await state.msal.loginRedirect({
-          scopes: [cfg.api_scope],
-          prompt: INTERACTIVE_LOGIN_PROMPT,
-        });
+        await state.msal.loginRedirect(interactiveAuthRequest(cfg.api_scope));
         return;
       }
       sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);

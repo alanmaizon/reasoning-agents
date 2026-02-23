@@ -144,6 +144,7 @@ class FrontendConfigResponse(BaseModel):
     authority: Optional[str] = None
     client_id: Optional[str] = None
     api_scope: Optional[str] = None
+    idp_hint: Optional[str] = None
 
 
 @lru_cache(maxsize=1)
@@ -418,6 +419,7 @@ def frontend_config() -> FrontendConfigResponse:
         authority=authority,
         client_id=os.environ.get("FRONTEND_CLIENT_ID"),
         api_scope=_frontend_api_scope(),
+        idp_hint=os.environ.get("FRONTEND_IDP_HINT"),
     )
 
 

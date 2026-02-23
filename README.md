@@ -129,6 +129,7 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 | `FRONTEND_CLIENT_ID` | Recommended when auth enabled | SPA app registration client ID used by built-in frontend |
 | `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (for CIAM: `https://<tenant>.ciamlogin.com`) |
 | `FRONTEND_API_SCOPE` | Recommended when auth enabled | Scope requested by frontend (e.g. `api://<api-app-id>/api.access`) |
+| `FRONTEND_IDP_HINT` | Optional | Identity provider hint passed as `idp` (for Google-first UX, e.g. `Google-OAUTH`) |
 | `API_RATE_LIMIT_REQUESTS_PER_MINUTE` | Optional | Max requests per identity per minute for `/v1/*` (default: `60`, set `0` to disable) |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | Optional | Rate-limit sliding window in seconds (default: `60`) |
 | `MCP_PROJECT_CONNECTION_NAME` | Optional | MCP connection name if required |
