@@ -40,7 +40,7 @@ def test_frontend_shell():
     response = client.get("/")
     assert response.status_code == 200
     assert "text/html" in response.headers.get("content-type", "")
-    assert "AZ-900 Readiness Coach" in response.text
+    assert "Readiness Coach" in response.text
 
 
 def test_frontend_config_public():

@@ -209,7 +209,8 @@ function syncAuthActions() {
 
 function setAuthMeta() {
   if (!state.config?.auth_enabled) {
-    el.authMeta.textContent = "Authentication optional.";
+    el.authMeta.textContent = "";
+    el.authMeta.classList.add("is-hidden");
     if (el.identityDetails && el.identityValue) {
       el.identityDetails.classList.add("is-hidden");
       el.identityValue.textContent = "";
@@ -223,13 +224,15 @@ function setAuthMeta() {
       state.account.name ||
       state.account.localAccountId ||
       "signed-in";
-    el.authMeta.textContent = "Authentication successful.";
+    el.authMeta.textContent = "";
+    el.authMeta.classList.add("is-hidden");
     if (el.identityDetails && el.identityValue) {
       el.identityDetails.classList.remove("is-hidden");
       el.identityValue.textContent = principal;
     }
     return;
   }
+  el.authMeta.classList.remove("is-hidden");
   el.authMeta.textContent = "Sign in is required to start a session.";
   if (el.identityDetails && el.identityValue) {
     el.identityDetails.classList.add("is-hidden");
