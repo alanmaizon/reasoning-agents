@@ -28,16 +28,26 @@ const el = {
   authMeta: document.getElementById("authMeta"),
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
+  identityDetails: document.getElementById("identityDetails"),
+  identityValue: document.getElementById("identityValue"),
+  sessionStatus: document.getElementById("sessionStatus"),
   startForm: document.getElementById("startForm"),
   userId: document.getElementById("userId"),
+  userIdRow: document.getElementById("userIdRow"),
   sessionMode: document.getElementById("sessionMode"),
-  focusTopics: document.getElementById("focusTopics"),
+  focusTopicsBlock: document.getElementById("focusTopicsBlock"),
+  focusTopicsCustom: document.getElementById("focusTopicsCustom"),
   offlineMode: document.getElementById("offlineMode"),
   planExamPanel: document.getElementById("planExamPanel"),
   examLockHint: document.getElementById("examLockHint"),
   planMeta: document.getElementById("planMeta"),
   examContainer: document.getElementById("examContainer"),
   submitBtn: document.getElementById("submitBtn"),
+  resultsPlaceholder: document.getElementById("resultsPlaceholder"),
+  evaluationSection: document.getElementById("evaluationSection"),
+  answerReviewSection: document.getElementById("answerReviewSection"),
+  coachingGrid: document.getElementById("coachingGrid"),
+  groundedSection: document.getElementById("groundedSection"),
   evaluationSummary: document.getElementById("evaluationSummary"),
   answerReviewList: document.getElementById("answerReviewList"),
   misconceptionList: document.getElementById("misconceptionList"),
@@ -56,15 +66,50 @@ function modeLabel(mode) {
   return "Adaptive coaching";
 }
 
+function setSessionStatus(message) {
+  if (el.sessionStatus) {
+    el.sessionStatus.textContent = message;
+  }
+}
+
 function syncModeInputs() {
   const isMockTest = (el.sessionMode.value || "adaptive") === "mock_test";
-  el.focusTopics.disabled = isMockTest;
-  el.focusTopics.placeholder = isMockTest
+  el.focusTopicsBlock.disabled = isMockTest;
+  el.focusTopicsCustom.disabled = isMockTest;
+  el.focusTopicsCustom.placeholder = isMockTest
     ? "Not used in mock test mode"
-    : "Security, Governance";
+    : "Optional custom topics, comma-separated";
   if (isMockTest) {
-    el.focusTopics.value = "";
+    el.focusTopicsCustom.value = "";
+    el.focusTopicsBlock
+      .querySelectorAll('input[type="checkbox"]')
+      .forEach((checkbox) => {
+        checkbox.checked = false;
+      });
   }
+}
+
+function selectedFocusTopics() {
+  const topics = new Set();
+  if (el.focusTopicsBlock && !el.focusTopicsBlock.disabled) {
+    el.focusTopicsBlock
+      .querySelectorAll('input[type="checkbox"]:checked')
+      .forEach((checkbox) => {
+        const value = checkbox.value.trim();
+        if (value) {
+          topics.add(value);
+        }
+      });
+  }
+
+  const custom = (el.focusTopicsCustom?.value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  for (const value of custom) {
+    topics.add(value);
+  }
+  return Array.from(topics);
 }
 
 function hasMsal() {
@@ -140,17 +185,49 @@ function setBanner(kind, message) {
   el.authBanner.textContent = message;
 }
 
-function setAuthMeta() {
+function syncAuthActions() {
+  if (!state.config?.auth_enabled) {
+    el.loginBtn.style.display = "none";
+    el.logoutBtn.style.display = "none";
+    return;
+  }
   if (state.account) {
-    const who =
+    el.loginBtn.style.display = "none";
+    el.logoutBtn.style.display = "";
+    return;
+  }
+  el.loginBtn.style.display = "";
+  el.logoutBtn.style.display = "none";
+}
+
+function setAuthMeta() {
+  if (!state.config?.auth_enabled) {
+    el.authMeta.textContent = "Authentication optional.";
+    if (el.identityDetails && el.identityValue) {
+      el.identityDetails.classList.add("is-hidden");
+      el.identityValue.textContent = "";
+    }
+    return;
+  }
+
+  if (state.account) {
+    const principal =
       state.account.username ||
       state.account.name ||
       state.account.localAccountId ||
       "signed-in";
-    el.authMeta.textContent = `Signed in: ${who}`;
+    el.authMeta.textContent = "Authentication successful.";
+    if (el.identityDetails && el.identityValue) {
+      el.identityDetails.classList.remove("is-hidden");
+      el.identityValue.textContent = principal;
+    }
     return;
   }
-  el.authMeta.textContent = "Not signed in";
+  el.authMeta.textContent = "Sign in is required to start a session.";
+  if (el.identityDetails && el.identityValue) {
+    el.identityDetails.classList.add("is-hidden");
+    el.identityValue.textContent = "";
+  }
 }
 
 function deriveUserIdFromAccount() {
@@ -169,12 +246,14 @@ function deriveUserIdFromAccount() {
 function syncUserIdInput() {
   const authEnabled = Boolean(state.config?.auth_enabled);
   if (!authEnabled) {
+    el.userIdRow.classList.remove("is-hidden");
     el.userId.disabled = false;
     el.userId.removeAttribute("aria-readonly");
     el.userId.removeAttribute("title");
     return;
   }
 
+  el.userIdRow.classList.add("is-hidden");
   el.userId.disabled = true;
   el.userId.setAttribute("aria-readonly", "true");
   el.userId.title = "Derived from your sign-in identity.";
@@ -186,6 +265,19 @@ function setFormsEnabled(enabled) {
   if (!enabled) {
     el.submitBtn.disabled = true;
   }
+}
+
+function setPlanExamVisible(visible) {
+  el.planExamPanel.classList.toggle("is-hidden", !visible);
+  el.planExamPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+}
+
+function setResultsVisibility(visible) {
+  el.resultsPlaceholder.classList.toggle("is-hidden", visible);
+  el.evaluationSection.classList.toggle("is-hidden", !visible);
+  el.answerReviewSection.classList.toggle("is-hidden", !visible);
+  el.coachingGrid.classList.toggle("is-hidden", !visible);
+  el.groundedSection.classList.toggle("is-hidden", !visible);
 }
 
 function setExamAccessibility(locked, message = "") {
@@ -598,7 +690,10 @@ async function handleLogin() {
   }
 
   setAuthBusy(true);
-  setBanner("info", "Redirecting to Condor sign-in...");
+  const googleHint =
+    String(state.config?.idp_hint || "").toLowerCase().includes("google") ||
+    String(state.config?.domain_hint || "").toLowerCase() === "google";
+  setBanner("info", googleHint ? "Redirecting to Google sign-in..." : "Redirecting to sign-in...");
   setFormsEnabled(false);
   sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);
   try {
@@ -617,12 +712,17 @@ async function handleLogin() {
 
 async function initAuth() {
   const cfg = state.config;
+  const googleHint =
+    String(cfg?.idp_hint || "").toLowerCase().includes("google") ||
+    String(cfg?.domain_hint || "").toLowerCase() === "google";
+  el.loginBtn.textContent = googleHint ? "Sign In with Google" : "Sign In";
+
   if (!cfg.auth_enabled) {
     setBanner("info", "API auth disabled. Calls are made without bearer tokens.");
-    el.loginBtn.style.display = "none";
-    el.logoutBtn.style.display = "none";
+    syncAuthActions();
     setFormsEnabled(true);
     syncUserIdInput();
+    setAuthMeta();
     return;
   }
 
@@ -632,6 +732,7 @@ async function initAuth() {
       "Auth is enabled but frontend auth config is incomplete (client_id/api_scope/authority)."
     );
     setFormsEnabled(false);
+    syncAuthActions();
     syncUserIdInput();
     return;
   }
@@ -645,6 +746,7 @@ async function initAuth() {
       `MSAL failed to load from available sources. ${err.message}`
     );
     setFormsEnabled(false);
+    syncAuthActions();
     syncUserIdInput();
     return;
   }
@@ -661,6 +763,7 @@ async function initAuth() {
   } catch (err) {
     setBanner("error", `MSAL initialization failed. ${err.message}`);
     setFormsEnabled(false);
+    syncAuthActions();
     syncUserIdInput();
     return;
   }
@@ -693,6 +796,7 @@ async function initAuth() {
     }
     setFormsEnabled(false);
     setAuthMeta();
+    syncAuthActions();
     syncUserIdInput();
     return;
   }
@@ -720,6 +824,7 @@ async function initAuth() {
     setFormsEnabled(false);
   }
   setAuthMeta();
+  syncAuthActions();
   syncUserIdInput();
 }
 
@@ -730,10 +835,7 @@ async function startSession(event) {
     const payload = {
       user_id: el.userId.value.trim(),
       mode: el.sessionMode.value || "adaptive",
-      focus_topics: el.focusTopics.value
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
+      focus_topics: selectedFocusTopics(),
       offline: Boolean(el.offlineMode.checked),
     };
     const result = await apiJson("/v1/session/start", payload);
@@ -748,10 +850,13 @@ async function startSession(event) {
     const modeText = modeLabel(state.sessionMode);
     state.planMetaBase = `Mode: ${modeText} | Plan domains: ${domains || "n/a"} | Questions: ${result.exam?.questions?.length || 0}`;
     el.planMeta.textContent = state.planMetaBase;
+    setPlanExamVisible(true);
     renderExam(result.exam);
     clearResults();
+    setResultsVisibility(false);
     updateQuestionProgress();
     setExamAccessibility(false);
+    setSessionStatus("Session active. Complete the exam and submit to see coaching.");
 
     if ((result.warnings || []).length > 0) {
       setBanner("warn", `Session started with warnings: ${result.warnings.join(" | ")}`);
@@ -781,9 +886,12 @@ async function submitSession() {
     renderResults(result);
     renderEvaluationSummary(result?.diagnosis);
     renderAnswerReview(result?.diagnosis);
+    setResultsVisibility(true);
     state.examSubmitted = true;
     state.submitting = false;
     setExamAccessibility(true, "Answers submitted. Start a new session to edit or retake.");
+    setPlanExamVisible(false);
+    setSessionStatus("Session submitted. Start a new session when you want another attempt.");
     setBanner("info", "Submission completed.");
   } catch (err) {
     state.submitting = false;
@@ -859,6 +967,7 @@ function bindEvents() {
     setAuthBusy(true);
     setFormsEnabled(!state.config.auth_enabled);
     setAuthMeta();
+    syncAuthActions();
     syncUserIdInput();
     if (state.msal?.logoutRedirect) {
       try {
@@ -878,6 +987,9 @@ async function init() {
   bindEvents();
   syncModeInputs();
   clearResults();
+  setResultsVisibility(false);
+  setSessionStatus("Start a session to unlock the exam panel.");
+  setPlanExamVisible(false);
   setExamAccessibility(false);
   syncUserIdInput();
   try {

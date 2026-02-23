@@ -10,6 +10,7 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <link rel="icon" type="image/png" href="/web/logo.png" />
     <link rel="stylesheet" href="/web/styles.css" />
   </head>
   <body>
@@ -17,25 +18,35 @@
     <div class="bg-orb bg-orb-b"></div>
     <main class="layout">
       <header class="hero reveal">
-        <p class="mono eyebrow">Condor</p>
-        <h1>Condor AZ-900 Coaching Workspace</h1>
+        <div class="brand">
+          <img class="brand-logo" src="/web/logo.png" alt="Condor logo" />
+          <div>
+            <p class="mono eyebrow">Condor</p>
+            <h1>AZ-900 Readiness Coach</h1>
+          </div>
+        </div>
         <p class="subhead">
-          Start a session, answer the exam, and get grounded coaching with
-          Entra-secured API calls.
+          Practice a realistic AZ-900 session, review every answer, and get
+          focused coaching aligned to Microsoft Azure Fundamentals domains.
         </p>
       </header>
 
       <section class="panel controls reveal">
         <h2>Session Setup</h2>
+        <p id="sessionStatus" class="small muted">Start a session to unlock the exam panel.</p>
         <div id="authBanner" class="banner info">Loading frontend config...</div>
         <div class="auth-actions">
-          <button id="loginBtn" class="btn primary" type="button">Sign In</button>
+          <button id="loginBtn" class="btn primary" type="button">Sign In with Google</button>
           <button id="logoutBtn" class="btn ghost" type="button">Sign Out</button>
-          <span id="authMeta" class="mono small"></span>
+          <span id="authMeta" class="small"></span>
         </div>
+        <details id="identityDetails" class="identity-details is-hidden">
+          <summary class="small">Session identity</summary>
+          <div id="identityValue" class="mono small"></div>
+        </details>
 
         <form id="startForm" class="stack">
-          <label>
+          <label id="userIdRow">
             User ID (manual only when auth is off)
             <input id="userId" type="text" required value="alan" />
           </label>
@@ -46,24 +57,45 @@
               <option value="mock_test">Mock AZ-900 test</option>
             </select>
           </label>
-          <label>
-            Focus Topics (comma-separated)
+          <fieldset id="focusTopicsBlock" class="topic-fieldset">
+            <legend>Focus Topics (adaptive mode)</legend>
+            <div class="topic-grid">
+              <label class="topic-option">
+                <input type="checkbox" value="Cloud concepts" />
+                <span>Cloud concepts</span>
+              </label>
+              <label class="topic-option">
+                <input type="checkbox" value="Core Azure services" />
+                <span>Core Azure services</span>
+              </label>
+              <label class="topic-option">
+                <input type="checkbox" value="Security and governance" />
+                <span>Security and governance</span>
+              </label>
+              <label class="topic-option">
+                <input type="checkbox" value="Pricing and SLA" />
+                <span>Pricing and SLA</span>
+              </label>
+            </div>
             <input
-              id="focusTopics"
+              id="focusTopicsCustom"
               type="text"
-              placeholder="Security, Governance"
+              placeholder="Optional custom topics, comma-separated"
             />
-          </label>
-          <label class="checkbox">
-            <input id="offlineMode" type="checkbox" />
-            Use offline mode
-          </label>
+          </fieldset>
+          <details class="advanced-options">
+            <summary>Advanced options</summary>
+            <label class="checkbox">
+              <input id="offlineMode" type="checkbox" />
+              Use offline mode
+            </label>
+          </details>
           <button class="btn primary" type="submit">Start Session</button>
         </form>
       </section>
 
-      <section id="planExamPanel" class="panel exam-panel reveal">
-        <h2>Plan + Exam</h2>
+      <section id="planExamPanel" class="panel exam-panel reveal is-hidden" aria-hidden="true">
+        <h2>Exam Session</h2>
         <div id="examLockHint" class="banner info exam-lock-hint" hidden></div>
         <div id="planMeta" class="mono small">No session started yet.</div>
         <div id="examContainer" class="exam-list"></div>
@@ -74,17 +106,20 @@
 
       <section class="panel reveal">
         <h2>Diagnosis + Coaching</h2>
-        <article>
+        <div id="resultsPlaceholder" class="banner info">
+          Submit your answers to generate your evaluation and coaching.
+        </div>
+        <article id="evaluationSection" class="is-hidden">
           <h3>Evaluation Summary</h3>
           <div id="evaluationSummary" class="evaluation-summary">
             <p class="small">Submit your quiz to calculate your estimated AZ-900 score.</p>
           </div>
         </article>
-        <article>
+        <article id="answerReviewSection" class="is-hidden">
           <h3>Answer Review</h3>
           <div id="answerReviewList" class="review-list"></div>
         </article>
-        <div class="grid-two">
+        <div id="coachingGrid" class="grid-two is-hidden">
           <article>
             <h3>Top Misconceptions</h3>
             <ul id="misconceptionList" class="result-list"></ul>
@@ -94,7 +129,7 @@
             <ul id="lessonList" class="result-list"></ul>
           </article>
         </div>
-        <article>
+        <article id="groundedSection" class="is-hidden">
           <h3>Grounded Explanations</h3>
           <div id="groundedList" class="grounded-list"></div>
         </article>
