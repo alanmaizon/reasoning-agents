@@ -19,6 +19,7 @@ const MSAL_SOURCES = [
   "https://unpkg.com/@azure/msal-browser@5.2.0/lib/msal-browser.min.js",
 ];
 const GOOGLE_USERNAME_RETRY_KEY = "condor_google_username_retry";
+const INTERACTIVE_LOGIN_PROMPT = "login";
 
 let msalLoadPromise = null;
 
@@ -543,7 +544,7 @@ async function ensureToken() {
       await resetCachedAuthState();
       await state.msal.loginRedirect({
         scopes: [state.config.api_scope],
-        prompt: "select_account",
+        prompt: INTERACTIVE_LOGIN_PROMPT,
       });
       throw new Error("Google sign-in needs a fresh session. Redirecting...");
     }
@@ -566,7 +567,7 @@ async function ensureToken() {
       // Force an explicit account picker flow for interactive token acquisition.
       await state.msal.acquireTokenRedirect({
         scopes: [state.config.api_scope],
-        prompt: "select_account",
+        prompt: INTERACTIVE_LOGIN_PROMPT,
       });
       throw new Error("Redirecting to refresh authentication...");
     }
@@ -589,7 +590,7 @@ async function handleLogin() {
   try {
     await state.msal.loginRedirect({
       scopes: [state.config.api_scope],
-      prompt: "select_account",
+      prompt: INTERACTIVE_LOGIN_PROMPT,
     });
   } catch (err) {
     if (isMsalError(err, "interaction_in_progress")) {
@@ -668,7 +669,7 @@ async function initAuth() {
         );
         await state.msal.loginRedirect({
           scopes: [cfg.api_scope],
-          prompt: "select_account",
+          prompt: INTERACTIVE_LOGIN_PROMPT,
         });
         return;
       }
