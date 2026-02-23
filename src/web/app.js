@@ -18,6 +18,7 @@ const MSAL_SOURCES = [
   "https://cdn.jsdelivr.net/npm/@azure/msal-browser@5.2.0/lib/msal-browser.min.js",
   "https://unpkg.com/@azure/msal-browser@5.2.0/lib/msal-browser.min.js",
 ];
+const GOOGLE_USERNAME_RETRY_KEY = "condor_google_username_retry";
 
 let msalLoadPromise = null;
 
@@ -226,6 +227,32 @@ function msalErrorCode(err) {
 function isMsalError(err, ...codes) {
   const code = msalErrorCode(err);
   return codes.some((c) => code === String(c).toLowerCase());
+}
+
+function isGoogleUsernameParamError(err) {
+  const text = String(err?.message || "").toLowerCase();
+  return text.includes("invalid_request") && text.includes("username");
+}
+
+async function resetCachedAuthState() {
+  state.token = null;
+  state.account = null;
+  if (!state.msal || typeof state.msal.clearCache !== "function") {
+    return;
+  }
+
+  try {
+    const accounts = state.msal.getAllAccounts();
+    if (accounts.length === 0) {
+      await state.msal.clearCache();
+      return;
+    }
+    for (const account of accounts) {
+      await state.msal.clearCache({ account });
+    }
+  } catch {
+    // Ignore cache-reset errors and continue with interactive login fallback.
+  }
 }
 
 function setAuthBusy(busy) {
@@ -512,6 +539,14 @@ async function ensureToken() {
     const tokenResult = await state.msal.acquireTokenSilent(request);
     state.token = tokenResult.accessToken;
   } catch (err) {
+    if (isGoogleUsernameParamError(err)) {
+      await resetCachedAuthState();
+      await state.msal.loginRedirect({
+        scopes: [state.config.api_scope],
+        prompt: "select_account",
+      });
+      throw new Error("Google sign-in needs a fresh session. Redirecting...");
+    }
     if (isMsalError(err, "interaction_in_progress")) {
       throw new Error(
         "Authentication already in progress. Finish the open sign-in tab and retry."
@@ -550,6 +585,7 @@ async function handleLogin() {
   setAuthBusy(true);
   setBanner("info", "Redirecting to Condor sign-in...");
   setFormsEnabled(false);
+  sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);
   try {
     await state.msal.loginRedirect({
       scopes: [state.config.api_scope],
@@ -621,6 +657,23 @@ async function initAuth() {
   try {
     redirectResult = await state.msal.handleRedirectPromise();
   } catch (err) {
+    if (isGoogleUsernameParamError(err)) {
+      const retried = sessionStorage.getItem(GOOGLE_USERNAME_RETRY_KEY) === "1";
+      if (!retried) {
+        sessionStorage.setItem(GOOGLE_USERNAME_RETRY_KEY, "1");
+        await resetCachedAuthState();
+        setBanner(
+          "warn",
+          "Google sign-in returned an invalid request. Retrying with account selection..."
+        );
+        await state.msal.loginRedirect({
+          scopes: [cfg.api_scope],
+          prompt: "select_account",
+        });
+        return;
+      }
+      sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);
+    }
     if (isMsalError(err, "interaction_in_progress")) {
       setBanner(
         "warn",
@@ -638,6 +691,7 @@ async function initAuth() {
   if (redirectResult?.account) {
     state.account = redirectResult.account;
     state.token = redirectResult.accessToken || null;
+    sessionStorage.removeItem(GOOGLE_USERNAME_RETRY_KEY);
   }
 
   const accounts = state.msal.getAllAccounts();
