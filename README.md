@@ -252,7 +252,18 @@ Optional overrides:
 
 ## Entra External ID User Flow (CLI)
 
-If you already have an External ID tenant, you can create/reuse a Sign-up and Sign-in flow with:
+Create an external tenant (one-time):
+
+```bash
+export RESOURCE_GROUP=rg-mdt-data-sc
+export TENANT_PREFIX=condorx$(date +%m%d%H%M%S)
+export DISPLAY_NAME="Condor External ID"
+export COUNTRY_CODE=IE
+export LOCATION=Europe
+bash scripts/azure/create_external_tenant.sh
+```
+
+Then create/reuse a Sign-up and Sign-in flow in that external tenant:
 
 ```bash
 export EXTERNAL_TENANT_ID=<external-tenant-guid>
