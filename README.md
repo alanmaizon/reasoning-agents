@@ -126,7 +126,7 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 | `ENTRA_ISSUER` / `ENTRA_ISSUERS` | Optional | Override allowed issuer(s), comma-separated when multiple |
 | `ENTRA_JWKS_URI` | Optional | Override JWKS endpoint URL |
 | `FRONTEND_CLIENT_ID` | Recommended when auth enabled | SPA app registration client ID used by built-in frontend |
-| `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (default derives from `ENTRA_TENANT_ID`) |
+| `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (for CIAM: `https://<tenant>.ciamlogin.com`) |
 | `FRONTEND_API_SCOPE` | Recommended when auth enabled | Scope requested by frontend (e.g. `api://<api-app-id>/api.access`) |
 | `API_RATE_LIMIT_REQUESTS_PER_MINUTE` | Optional | Max requests per identity per minute for `/v1/*` (default: `60`, set `0` to disable) |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | Optional | Rate-limit sliding window in seconds (default: `60`) |
@@ -286,6 +286,23 @@ export USER_FLOW_ID=B2C_1_condor_signup_signin   # optional
 # export CIAM_IDENTITY_PROVIDER_ID=EmailOtpSignup-OAUTH  # optional override
 bash scripts/azure/setup_external_id_user_flow.sh
 ```
+
+Force Google-only provider experience (CIAM flow):
+
+```bash
+export EXTERNAL_TENANT_ID=<external-tenant-guid>
+export GRAPH_CLIENT_ID=<app-registration-client-id>
+export GRAPH_CLIENT_SECRET=<app-registration-client-secret>
+export USER_FLOW_ID=B2C_1_condor_signup_signin
+export CIAM_GOOGLE_ONLY=true
+export CIAM_SYNC_IDENTITY_PROVIDERS=true
+bash scripts/azure/setup_external_id_user_flow.sh
+```
+
+Notes:
+- `CIAM_GOOGLE_ONLY=true` resolves desired providers to only `Google-OAUTH`.
+- `CIAM_SYNC_IDENTITY_PROVIDERS=true` also updates an existing flow (adds/removes providers to match exactly).
+- If you prefer explicit control, use `CIAM_IDENTITY_PROVIDER_IDS=Google-OAUTH` instead.
 
 Requirements:
 - Azure CLI logged in with access to the external tenant when using Azure CLI token mode.

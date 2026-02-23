@@ -12,6 +12,12 @@ set -euo pipefail
 #   GRAPH_CLIENT_ID      App registration client ID (for client credentials auth)
 #   GRAPH_CLIENT_SECRET  App registration client secret (for client credentials auth)
 #   CIAM_IDENTITY_PROVIDER_ID  Preferred CIAM provider id (default: EmailPassword-OAUTH)
+#   CIAM_IDENTITY_PROVIDER_IDS Comma-separated provider ids to enforce
+#                              (e.g. "Google-OAUTH")
+#   CIAM_SYNC_IDENTITY_PROVIDERS true/false (default: false)
+#                              Sync providers on existing CIAM flow to match desired list
+#   CIAM_GOOGLE_ONLY      true/false (default: false)
+#                         Shortcut for CIAM_IDENTITY_PROVIDER_IDS=Google-OAUTH
 #
 # Notes:
 # - For CIAM tenants, this script uses authenticationEventsFlows APIs
@@ -30,6 +36,9 @@ TOKEN_SOURCE=""
 INPUT_GRAPH_TOKEN="${GRAPH_TOKEN:-}"
 GRAPH_TOKEN=""
 CIAM_IDENTITY_PROVIDER_ID="${CIAM_IDENTITY_PROVIDER_ID:-EmailPassword-OAUTH}"
+CIAM_IDENTITY_PROVIDER_IDS="${CIAM_IDENTITY_PROVIDER_IDS:-}"
+CIAM_SYNC_IDENTITY_PROVIDERS="${CIAM_SYNC_IDENTITY_PROVIDERS:-false}"
+CIAM_GOOGLE_ONLY="${CIAM_GOOGLE_ONLY:-false}"
 
 # Some environments (CI/sandbox) cannot write under ~/.azure/commands.
 # Use a writable AZURE_CONFIG_DIR by default and copy cached profile if present.
@@ -120,6 +129,115 @@ graph_call() {
   fi
 }
 
+is_truthy() {
+  local value="${1:-}"
+  value="$(echo "$value" | tr '[:upper:]' '[:lower:]')"
+  [[ "$value" == "1" || "$value" == "true" || "$value" == "yes" || "$value" == "on" ]]
+}
+
+build_desired_ciam_providers() {
+  local input_ids="$1"
+  local -n out_ref="$2"
+  out_ref=()
+
+  if [[ -n "$input_ids" ]]; then
+    while IFS= read -r item; do
+      item="$(echo "$item" | xargs)"
+      [[ -n "$item" ]] && out_ref+=("$item")
+    done < <(echo "$input_ids" | tr ',' '\n')
+    return 0
+  fi
+
+  if is_truthy "$CIAM_GOOGLE_ONLY"; then
+    out_ref+=("Google-OAUTH")
+    return 0
+  fi
+
+  out_ref+=("$CIAM_IDENTITY_PROVIDER_ID")
+}
+
+ciam_list_identity_providers() {
+  local flow_id="$1"
+  graph_call GET "${GRAPH_BASE}/v1.0/identity/authenticationEventsFlows/${flow_id}/microsoft.graph.externalUsersSelfServiceSignUpEventsFlow/onAuthenticationMethodLoadStart/microsoft.graph.onAuthenticationMethodLoadStartExternalUsersSelfServiceSignUp/identityProviders"
+}
+
+ciam_add_identity_provider() {
+  local flow_id="$1"
+  local provider_id="$2"
+  local body
+  body="$(jq -nc --arg odata_id "${GRAPH_BASE}/v1.0/identityProviders/${provider_id}" '{"@odata.id": $odata_id}')"
+  graph_call POST "${GRAPH_BASE}/v1.0/identity/authenticationEventsFlows/${flow_id}/microsoft.graph.externalUsersSelfServiceSignUpEventsFlow/onAuthenticationMethodLoadStart/microsoft.graph.onAuthenticationMethodLoadStartExternalUsersSelfServiceSignUp/identityProviders/\$ref" "$body"
+}
+
+ciam_delete_identity_provider() {
+  local flow_id="$1"
+  local provider_id="$2"
+  graph_call DELETE "${GRAPH_BASE}/v1.0/identity/authenticationEventsFlows/${flow_id}/microsoft.graph.externalUsersSelfServiceSignUpEventsFlow/onAuthenticationMethodLoadStart/microsoft.graph.onAuthenticationMethodLoadStartExternalUsersSelfServiceSignUp/identityProviders/${provider_id}/\$ref"
+}
+
+sync_ciam_identity_providers() {
+  local flow_id="$1"
+  local -a desired_providers=()
+  local -a existing_providers=()
+  local -a to_add=()
+  local -a to_remove=()
+  local status
+  local provider
+
+  build_desired_ciam_providers "$CIAM_IDENTITY_PROVIDER_IDS" desired_providers
+  if [[ "${#desired_providers[@]}" -eq 0 ]]; then
+    echo "No desired CIAM identity providers were supplied." >&2
+    return 1
+  fi
+
+  status="$(ciam_list_identity_providers "$flow_id")"
+  if [[ "$status" != "200" ]]; then
+    echo "Failed to list CIAM identity providers (${status})." >&2
+    cat "$tmp_body" >&2
+    return 1
+  fi
+
+  mapfile -t existing_providers < <(jq -r '.value[]?.id' "$tmp_body")
+
+  for provider in "${desired_providers[@]}"; do
+    if ! printf '%s\n' "${existing_providers[@]}" | grep -Fxq "$provider"; then
+      to_add+=("$provider")
+    fi
+  done
+
+  for provider in "${existing_providers[@]}"; do
+    if ! printf '%s\n' "${desired_providers[@]}" | grep -Fxq "$provider"; then
+      to_remove+=("$provider")
+    fi
+  done
+
+  for provider in "${to_remove[@]}"; do
+    echo "Removing CIAM identity provider: ${provider}"
+    status="$(ciam_delete_identity_provider "$flow_id" "$provider")"
+    if [[ "$status" != "204" && "$status" != "200" ]]; then
+      echo "Failed removing provider ${provider} (${status})." >&2
+      cat "$tmp_body" >&2
+      return 1
+    fi
+  done
+
+  for provider in "${to_add[@]}"; do
+    echo "Adding CIAM identity provider: ${provider}"
+    status="$(ciam_add_identity_provider "$flow_id" "$provider")"
+    if [[ "$status" != "204" && "$status" != "200" ]]; then
+      echo "Failed adding provider ${provider} (${status})." >&2
+      cat "$tmp_body" >&2
+      return 1
+    fi
+  done
+
+  status="$(ciam_list_identity_providers "$flow_id")"
+  if [[ "$status" == "200" ]]; then
+    echo "Current CIAM identity providers:"
+    jq '{identityProviders:[.value[] | .id]}' "$tmp_body"
+  fi
+}
+
 setup_ciam_user_flow() {
   local flow_name="$1"
   local status
@@ -143,6 +261,10 @@ setup_ciam_user_flow() {
     )"
     if [[ -n "$existing_id" ]]; then
       echo "User flow already exists: ${flow_name}"
+      if is_truthy "$CIAM_SYNC_IDENTITY_PROVIDERS" || is_truthy "$CIAM_GOOGLE_ONLY" || [[ -n "$CIAM_IDENTITY_PROVIDER_IDS" ]]; then
+        echo "Syncing CIAM identity providers on existing flow..."
+        sync_ciam_identity_providers "$existing_id"
+      fi
       jq -n --arg id "$existing_id" --arg displayName "$flow_name" \
         '{id:$id, displayName:$displayName, userFlowType:"externalUsersSelfServiceSignUpEventsFlow"}'
       return 0
@@ -159,12 +281,10 @@ setup_ciam_user_flow() {
     return 1
   fi
 
-  providers=("$CIAM_IDENTITY_PROVIDER_ID")
-  if [[ "$CIAM_IDENTITY_PROVIDER_ID" != "EmailPassword-OAUTH" ]]; then
-    providers+=("EmailPassword-OAUTH")
-  fi
-  if [[ "$CIAM_IDENTITY_PROVIDER_ID" != "EmailOtpSignup-OAUTH" ]]; then
-    providers+=("EmailOtpSignup-OAUTH")
+  build_desired_ciam_providers "$CIAM_IDENTITY_PROVIDER_IDS" providers
+  if [[ "${#providers[@]}" -eq 0 ]]; then
+    echo "No CIAM identity providers requested." >&2
+    return 1
   fi
   echo "Creating CIAM user flow: ${flow_name}"
   for provider in "${providers[@]}"; do
@@ -202,7 +322,7 @@ setup_ciam_user_flow() {
     echo "Create attempt with provider '${provider}' failed (${status}), trying next provider if available..." >&2
   done
 
-  echo "Failed to create CIAM user flow after trying built-in providers." >&2
+  echo "Failed to create CIAM user flow after trying requested providers." >&2
   cat "$tmp_body" >&2
   return 1
 }
