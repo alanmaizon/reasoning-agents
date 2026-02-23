@@ -68,6 +68,114 @@ jobs:
           ssh-keyscan -p "$PORT" -H "$VM_HOST" >> ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
+      - name: Sync Runtime Env To VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USER: ${{ secrets.VM_USER }}
+          VM_PORT: ${{ secrets.VM_PORT }}
+          AZURE_AI_PROJECT_ENDPOINT: ${{ secrets.AZURE_AI_PROJECT_ENDPOINT }}
+          AZURE_AI_MODEL_DEPLOYMENT_NAME: ${{ secrets.AZURE_AI_MODEL_DEPLOYMENT_NAME }}
+          AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
+          APP_LOG_LEVEL: ${{ secrets.APP_LOG_LEVEL }}
+          APP_LOG_FORMAT: ${{ secrets.APP_LOG_FORMAT }}
+          ENTRA_AUTH_ENABLED: ${{ secrets.ENTRA_AUTH_ENABLED }}
+          ENTRA_TENANT_ID: ${{ secrets.ENTRA_TENANT_ID }}
+          ENTRA_AUDIENCE: ${{ secrets.ENTRA_AUDIENCE }}
+          ENTRA_AUDIENCES: ${{ secrets.ENTRA_AUDIENCES }}
+          ENTRA_REQUIRED_SCOPES: ${{ secrets.ENTRA_REQUIRED_SCOPES }}
+          ENTRA_REQUIRED_ROLES: ${{ secrets.ENTRA_REQUIRED_ROLES }}
+          ENTRA_ISSUER: ${{ secrets.ENTRA_ISSUER }}
+          ENTRA_ISSUERS: ${{ secrets.ENTRA_ISSUERS }}
+          ENTRA_JWKS_URI: ${{ secrets.ENTRA_JWKS_URI }}
+          ENTRA_HTTP_TIMEOUT_SECONDS: ${{ secrets.ENTRA_HTTP_TIMEOUT_SECONDS }}
+          ENTRA_JWKS_CACHE_TTL_SECONDS: ${{ secrets.ENTRA_JWKS_CACHE_TTL_SECONDS }}
+          FRONTEND_CLIENT_ID: ${{ secrets.FRONTEND_CLIENT_ID }}
+          FRONTEND_AUTHORITY: ${{ secrets.FRONTEND_AUTHORITY }}
+          FRONTEND_API_SCOPE: ${{ secrets.FRONTEND_API_SCOPE }}
+          API_RATE_LIMIT_REQUESTS_PER_MINUTE: ${{ secrets.API_RATE_LIMIT_REQUESTS_PER_MINUTE }}
+          API_RATE_LIMIT_WINDOW_SECONDS: ${{ secrets.API_RATE_LIMIT_WINDOW_SECONDS }}
+          MCP_PROJECT_CONNECTION_NAME: ${{ secrets.MCP_PROJECT_CONNECTION_NAME }}
+          POSTGRES_DSN: ${{ secrets.POSTGRES_DSN }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_PORT }}
+          POSTGRES_DB: ${{ secrets.POSTGRES_DB }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_USER }}
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          POSTGRES_SSLMODE: ${{ secrets.POSTGRES_SSLMODE }}
+          STATE_PG_TABLE: ${{ secrets.STATE_PG_TABLE }}
+          AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}
+          AZURE_STORAGE_CONTAINER: ${{ secrets.AZURE_STORAGE_CONTAINER }}
+          STATE_BLOB_PREFIX: ${{ secrets.STATE_BLOB_PREFIX }}
+          CACHE_BLOB_NAME: ${{ secrets.CACHE_BLOB_NAME }}
+          STATE_DIR: ${{ secrets.STATE_DIR }}
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          test -n "${VM_HOST:-}"
+          VM_USER="${VM_USER:-azureuser}"
+          VM_PORT="${VM_PORT:-22}"
+
+          tmp_env="$(mktemp)"
+          trap 'rm -f "$tmp_env"' EXIT
+          printf '# Managed by GitHub Actions deploy_vm workflow\n' >"$tmp_env"
+
+          write_if_set() {
+            local key="$1"
+            local value="${!key-}"
+            if [[ -n "$value" ]]; then
+              printf '%s=%s\n' "$key" "$value" >>"$tmp_env"
+            fi
+          }
+
+          runtime_keys=(
+            AZURE_AI_PROJECT_ENDPOINT
+            AZURE_AI_MODEL_DEPLOYMENT_NAME
+            AZURE_OPENAI_API_KEY
+            APP_LOG_LEVEL
+            APP_LOG_FORMAT
+            ENTRA_AUTH_ENABLED
+            ENTRA_TENANT_ID
+            ENTRA_AUDIENCE
+            ENTRA_AUDIENCES
+            ENTRA_REQUIRED_SCOPES
+            ENTRA_REQUIRED_ROLES
+            ENTRA_ISSUER
+            ENTRA_ISSUERS
+            ENTRA_JWKS_URI
+            ENTRA_HTTP_TIMEOUT_SECONDS
+            ENTRA_JWKS_CACHE_TTL_SECONDS
+            FRONTEND_CLIENT_ID
+            FRONTEND_AUTHORITY
+            FRONTEND_API_SCOPE
+            API_RATE_LIMIT_REQUESTS_PER_MINUTE
+            API_RATE_LIMIT_WINDOW_SECONDS
+            MCP_PROJECT_CONNECTION_NAME
+            POSTGRES_DSN
+            DATABASE_URL
+            POSTGRES_HOST
+            POSTGRES_PORT
+            POSTGRES_DB
+            POSTGRES_USER
+            POSTGRES_PASSWORD
+            POSTGRES_SSLMODE
+            STATE_PG_TABLE
+            AZURE_STORAGE_CONNECTION_STRING
+            AZURE_STORAGE_CONTAINER
+            STATE_BLOB_PREFIX
+            CACHE_BLOB_NAME
+            STATE_DIR
+            GOOGLE_CLIENT_ID
+          )
+
+          for key in "${runtime_keys[@]}"; do
+            write_if_set "$key"
+          done
+
+          scp -P "$VM_PORT" -o StrictHostKeyChecking=accept-new "$tmp_env" "${VM_USER}@${VM_HOST}:/tmp/mdt-api.env.new"
+          ssh -p "$VM_PORT" -o StrictHostKeyChecking=accept-new "${VM_USER}@${VM_HOST}" \
+            "sudo install -m 600 /tmp/mdt-api.env.new /etc/mdt-api.env && rm -f /tmp/mdt-api.env.new"
+
       - name: Deploy To VM
         env:
           VM_HOST: ${{ secrets.VM_HOST }}

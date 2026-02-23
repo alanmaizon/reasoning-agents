@@ -264,6 +264,10 @@ export DIRECTORY_LOCATION=Europe
 bash scripts/azure/create_external_tenant.sh
 ```
 
+Notes:
+- `create_external_tenant.sh` auto-detects a supported External ID resource type (`ciamDirectories`/`b2cDirectories`) and API version from your subscription provider metadata.
+- If Azure CLI cannot write under `~/.azure/commands`, run with `export AZURE_CONFIG_DIR=/tmp/azcfg-condor`.
+
 Then create/reuse a Sign-up and Sign-in flow in that external tenant:
 
 ```bash
@@ -272,9 +276,22 @@ export USER_FLOW_ID=B2C_1_condor_signup_signin   # optional
 bash scripts/azure/setup_external_id_user_flow.sh
 ```
 
+Recommended for External ID automation (app-only Graph token):
+
+```bash
+export EXTERNAL_TENANT_ID=<external-tenant-guid>
+export GRAPH_CLIENT_ID=<app-registration-client-id>
+export GRAPH_CLIENT_SECRET=<app-registration-client-secret>
+export USER_FLOW_ID=B2C_1_condor_signup_signin   # optional
+# export CIAM_IDENTITY_PROVIDER_ID=EmailOtpSignup-OAUTH  # optional override
+bash scripts/azure/setup_external_id_user_flow.sh
+```
+
 Requirements:
-- Azure CLI logged in with access to the external tenant.
-- Delegated Microsoft Graph permission to manage user flows (`IdentityUserFlow.ReadWrite.All`).
+- Azure CLI logged in with access to the external tenant when using Azure CLI token mode.
+- For CIAM tenants, app-only mode requires Microsoft Graph application permission `EventListener.ReadWrite.All` with admin consent.
+- For B2C tenants, delegated/app mode requires `IdentityUserFlow.ReadWrite.All`.
+- The script auto-detects CIAM vs B2C from Graph API responses and uses the appropriate endpoint.
 
 ## GitHub Actions CI/CD To VM
 
@@ -302,6 +319,22 @@ Set these repository secrets:
 - `VM_APP_DIR` (optional, default `/home/<VM_USER>/app`)
 - `VM_SERVICE_NAME` (optional, default `mdt-api`)
 - `HEALTHCHECK_URL` (optional, recommended)
+
+Runtime configuration secrets (recommended in GitHub Environment `production`):
+
+- `AZURE_AI_PROJECT_ENDPOINT`, `AZURE_AI_MODEL_DEPLOYMENT_NAME`
+- `AZURE_OPENAI_API_KEY` (optional)
+- `ENTRA_AUTH_ENABLED`, `ENTRA_TENANT_ID`, `ENTRA_AUDIENCE` (or `ENTRA_AUDIENCES`)
+- `ENTRA_REQUIRED_SCOPES`, `ENTRA_REQUIRED_ROLES` (optional)
+- `ENTRA_ISSUER` (or `ENTRA_ISSUERS`), `ENTRA_JWKS_URI` (optional overrides)
+- `FRONTEND_CLIENT_ID`, `FRONTEND_AUTHORITY`, `FRONTEND_API_SCOPE`
+- `POSTGRES_DSN` (or `DATABASE_URL` / `POSTGRES_*`)
+- `AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_CONTAINER` (optional)
+- `APP_LOG_LEVEL`, `APP_LOG_FORMAT`, `API_RATE_LIMIT_REQUESTS_PER_MINUTE`, `API_RATE_LIMIT_WINDOW_SECONDS` (optional)
+
+Deployment behavior:
+- The deploy workflow writes non-empty runtime secrets to `/etc/mdt-api.env` on the VM before restarting `mdt-api`.
+- Keep `.env` for local development only.
 
 Example health check URL:
 
