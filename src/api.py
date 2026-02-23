@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections import deque
 from contextlib import asynccontextmanager
 from functools import lru_cache
 import os
 from pathlib import Path
 import logging
-from time import perf_counter
+from threading import Lock
+from time import perf_counter, time
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, TypeVar
 from uuid import uuid4
 
@@ -67,6 +69,40 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 _http_logger = logging.getLogger("mdt.http")
 
 
+class _SlidingWindowRateLimiter:
+    """In-memory per-key request limiter for lightweight abuse protection."""
+
+    def __init__(self, max_requests: int, window_seconds: int) -> None:
+        self._max_requests = max(0, max_requests)
+        self._window_seconds = max(1, window_seconds)
+        self._buckets: Dict[str, deque[float]] = {}
+        self._lock = Lock()
+
+    def check(self, key: str) -> Optional[int]:
+        """Returns retry-after seconds when blocked, otherwise None."""
+        if self._max_requests <= 0:
+            return None
+
+        now = time()
+        cutoff = now - self._window_seconds
+
+        with self._lock:
+            bucket = self._buckets.get(key)
+            if bucket is None:
+                bucket = deque()
+                self._buckets[key] = bucket
+
+            while bucket and bucket[0] <= cutoff:
+                bucket.popleft()
+
+            if len(bucket) >= self._max_requests:
+                retry_after = int(bucket[0] + self._window_seconds - now) + 1
+                return max(1, retry_after)
+
+            bucket.append(now)
+            return None
+
+
 class StartSessionRequest(BaseModel):
     user_id: str = Field(default="default", min_length=1, max_length=120)
     focus_topics: List[str] = Field(default_factory=list)
@@ -123,6 +159,81 @@ def _cached_foundry_runner():
 @lru_cache(maxsize=1)
 def _token_validator():
     return build_entra_validator()
+
+
+def _env_int(name: str, default: int, minimum: int = 0) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return default
+    return max(minimum, value)
+
+
+@lru_cache(maxsize=1)
+def _rate_limiter() -> Optional[_SlidingWindowRateLimiter]:
+    max_requests = _env_int("API_RATE_LIMIT_REQUESTS_PER_MINUTE", 60, minimum=0)
+    if max_requests <= 0:
+        return None
+    window_seconds = _env_int("API_RATE_LIMIT_WINDOW_SECONDS", 60, minimum=1)
+    return _SlidingWindowRateLimiter(
+        max_requests=max_requests,
+        window_seconds=window_seconds,
+    )
+
+
+def _claim_principal(claims: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not claims:
+        return None
+    for key in ("oid", "sub"):
+        value = claims.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _effective_user_id(
+    requested_user_id: str, claims: Optional[Dict[str, Any]]
+) -> str:
+    """Use token identity when auth is enabled; fallback to client user_id otherwise."""
+    if claims is None:
+        return requested_user_id
+
+    principal = _claim_principal(claims)
+    if not principal:
+        raise HTTPException(
+            status_code=401,
+            detail="Bearer token is missing required subject claims.",
+        )
+
+    tenant_id = claims.get("tid")
+    if isinstance(tenant_id, str) and tenant_id.strip():
+        return f"{tenant_id.strip()}:{principal}"
+    return f"auth:{principal}"
+
+
+def _rate_limit_key(request: Request, claims: Optional[Dict[str, Any]]) -> str:
+    principal = _claim_principal(claims)
+    if principal:
+        return f"user:{principal}"
+    client_ip = request.client.host if request.client else "unknown"
+    return f"ip:{client_ip}"
+
+
+def _enforce_rate_limit(request: Request, claims: Optional[Dict[str, Any]]) -> None:
+    limiter = _rate_limiter()
+    if limiter is None:
+        return
+    retry_after = limiter.check(_rate_limit_key(request, claims))
+    if retry_after is None:
+        return
+    raise HTTPException(
+        status_code=429,
+        detail="Rate limit exceeded. Please retry later.",
+        headers={"Retry-After": str(retry_after)},
+    )
 
 
 def _authorize_v1(
@@ -312,18 +423,24 @@ def frontend_config() -> FrontendConfigResponse:
 
 @app.get("/v1/state/{user_id}", response_model=StudentState)
 def get_state(
+    request: Request,
     user_id: str,
-    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+    claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
 ) -> StudentState:
-    return _state_store().load(user_id)
+    _enforce_rate_limit(request, claims)
+    effective_user_id = _effective_user_id(user_id, claims)
+    return _state_store().load(effective_user_id)
 
 
 @app.post("/v1/session/start", response_model=StartSessionResponse)
 def start_session(
     req: StartSessionRequest,
-    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+    request: Request,
+    claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
 ) -> StartSessionResponse:
-    state = _state_store().load(req.user_id)
+    _enforce_rate_limit(request, claims)
+    effective_user_id = _effective_user_id(req.user_id, claims)
+    state = _state_store().load(effective_user_id)
     state.preferred_minutes = req.minutes
 
     warnings: List[str] = []
@@ -386,12 +503,12 @@ def start_session(
         offline_used = offline_used or used_offline_for_exam
 
     try:
-        _state_store().save(req.user_id, state)
+        _state_store().save(effective_user_id, state)
     except OSError as exc:
         warnings.append(f"State save failed: {exc}")
 
     return StartSessionResponse(
-        user_id=req.user_id,
+        user_id=effective_user_id,
         mode=req.mode,
         offline_used=offline_used,
         warnings=warnings,
@@ -404,9 +521,12 @@ def start_session(
 @app.post("/v1/session/submit", response_model=SubmitSessionResponse)
 def submit_session(
     req: SubmitSessionRequest,
-    _claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
+    request: Request,
+    claims: Optional[Dict[str, Any]] = Depends(_authorize_v1),
 ) -> SubmitSessionResponse:
-    state = _state_store().load(req.user_id)
+    _enforce_rate_limit(request, claims)
+    effective_user_id = _effective_user_id(req.user_id, claims)
+    state = _state_store().load(effective_user_id)
     warnings: List[str] = []
 
     runtime_offline, foundry_run = _resolve_runtime(req.offline)
@@ -507,12 +627,12 @@ def submit_session(
     state.update_from_diagnosis(diagnosis_dump, domains_covered)
 
     try:
-        _state_store().save(req.user_id, state)
+        _state_store().save(effective_user_id, state)
     except OSError as exc:
         warnings.append(f"State save failed: {exc}")
 
     return SubmitSessionResponse(
-        user_id=req.user_id,
+        user_id=effective_user_id,
         offline_used=offline_used,
         warnings=warnings,
         diagnosis=diagnosis,

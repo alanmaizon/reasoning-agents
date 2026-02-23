@@ -151,6 +151,34 @@ function setAuthMeta() {
   el.authMeta.textContent = "Not signed in";
 }
 
+function deriveUserIdFromAccount() {
+  if (!state.account) {
+    return "signed-in-user";
+  }
+  return (
+    state.account.localAccountId ||
+    state.account.homeAccountId ||
+    state.account.username ||
+    state.account.name ||
+    "signed-in-user"
+  );
+}
+
+function syncUserIdInput() {
+  const authEnabled = Boolean(state.config?.auth_enabled);
+  if (!authEnabled) {
+    el.userId.disabled = false;
+    el.userId.removeAttribute("aria-readonly");
+    el.userId.removeAttribute("title");
+    return;
+  }
+
+  el.userId.disabled = true;
+  el.userId.setAttribute("aria-readonly", "true");
+  el.userId.title = "Derived from your sign-in identity.";
+  el.userId.value = deriveUserIdFromAccount();
+}
+
 function setFormsEnabled(enabled) {
   el.startForm.querySelector("button[type=submit]").disabled = !enabled;
   if (!enabled) {
@@ -541,6 +569,7 @@ async function initAuth() {
     el.loginBtn.style.display = "none";
     el.logoutBtn.style.display = "none";
     setFormsEnabled(true);
+    syncUserIdInput();
     return;
   }
 
@@ -550,6 +579,7 @@ async function initAuth() {
       "Auth is enabled but frontend auth config is incomplete (client_id/api_scope/authority)."
     );
     setFormsEnabled(false);
+    syncUserIdInput();
     return;
   }
 
@@ -562,6 +592,7 @@ async function initAuth() {
       `MSAL failed to load from available sources. ${err.message}`
     );
     setFormsEnabled(false);
+    syncUserIdInput();
     return;
   }
 
@@ -577,6 +608,7 @@ async function initAuth() {
   } catch (err) {
     setBanner("error", `MSAL initialization failed. ${err.message}`);
     setFormsEnabled(false);
+    syncUserIdInput();
     return;
   }
 
@@ -594,6 +626,7 @@ async function initAuth() {
     }
     setFormsEnabled(false);
     setAuthMeta();
+    syncUserIdInput();
     return;
   }
 
@@ -619,6 +652,7 @@ async function initAuth() {
     setFormsEnabled(false);
   }
   setAuthMeta();
+  syncUserIdInput();
 }
 
 async function startSession(event) {
@@ -757,6 +791,7 @@ function bindEvents() {
     setAuthBusy(true);
     setFormsEnabled(!state.config.auth_enabled);
     setAuthMeta();
+    syncUserIdInput();
     if (state.msal?.logoutRedirect) {
       try {
         await state.msal.logoutRedirect({
@@ -776,6 +811,7 @@ async function init() {
   syncModeInputs();
   clearResults();
   setExamAccessibility(false);
+  syncUserIdInput();
   try {
     const response = await fetch("/frontend-config");
     state.config = await response.json();

@@ -16,9 +16,12 @@ from src import api
 @pytest.fixture(autouse=True)
 def _auth_disabled(monkeypatch):
     monkeypatch.setattr(api, "build_entra_validator", lambda: None)
+    monkeypatch.setenv("API_RATE_LIMIT_REQUESTS_PER_MINUTE", "0")
     api._token_validator.cache_clear()
+    api._rate_limiter.cache_clear()
     yield
     api._token_validator.cache_clear()
+    api._rate_limiter.cache_clear()
 
 
 def test_healthz():

@@ -128,6 +128,8 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 | `FRONTEND_CLIENT_ID` | Recommended when auth enabled | SPA app registration client ID used by built-in frontend |
 | `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (default derives from `ENTRA_TENANT_ID`) |
 | `FRONTEND_API_SCOPE` | Recommended when auth enabled | Scope requested by frontend (e.g. `api://<api-app-id>/api.access`) |
+| `API_RATE_LIMIT_REQUESTS_PER_MINUTE` | Optional | Max requests per identity per minute for `/v1/*` (default: `60`, set `0` to disable) |
+| `API_RATE_LIMIT_WINDOW_SECONDS` | Optional | Rate-limit sliding window in seconds (default: `60`) |
 | `MCP_PROJECT_CONNECTION_NAME` | Optional | MCP connection name if required |
 | `POSTGRES_DSN` / `DATABASE_URL` | Optional | PostgreSQL DSN for primary state persistence |
 | `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_SSLMODE` | Optional | PostgreSQL discrete connection settings (used when DSN is absent) |
@@ -146,6 +148,7 @@ State persistence priority in hosted mode:
 Authentication behavior:
 - `/healthz` stays public
 - `/v1/*` is protected only when `ENTRA_AUTH_ENABLED=true`
+- In auth mode, backend state is bound to token identity (`oid`/`sub`); client `user_id` is ignored
 - `/` serves the built-in frontend shell
 
 ## Project Structure

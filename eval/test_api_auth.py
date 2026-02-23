@@ -30,10 +30,13 @@ class _ForbiddenValidator:
 
 
 @pytest.fixture(autouse=True)
-def _clear_auth_cache():
+def _clear_auth_cache(monkeypatch):
+    monkeypatch.setenv("API_RATE_LIMIT_REQUESTS_PER_MINUTE", "0")
     api._token_validator.cache_clear()
+    api._rate_limiter.cache_clear()
     yield
     api._token_validator.cache_clear()
+    api._rate_limiter.cache_clear()
 
 
 def test_v1_requires_token_when_auth_enabled(monkeypatch):
@@ -81,3 +84,29 @@ def test_v1_accepts_valid_token(monkeypatch):
     )
     assert response.status_code == 200
     assert response.json()["preferred_minutes"] == 30
+
+
+def test_auth_mode_uses_claim_identity_instead_of_payload_user_id(monkeypatch):
+    monkeypatch.setattr(api, "build_entra_validator", lambda: _AllowAllValidator())
+    client = TestClient(api.app)
+
+    start_response = client.post(
+        "/v1/session/start",
+        headers={"Authorization": "Bearer good-token"},
+        json={
+            "user_id": "spoofed-user",
+            "focus_topics": ["Security"],
+            "minutes": 15,
+            "offline": True,
+        },
+    )
+    assert start_response.status_code == 200
+    payload = start_response.json()
+    assert payload["user_id"] == "auth:user-1"
+
+    state_response = client.get(
+        "/v1/state/any-other-user",
+        headers={"Authorization": "Bearer good-token"},
+    )
+    assert state_response.status_code == 200
+    assert state_response.json()["preferred_minutes"] == 15
