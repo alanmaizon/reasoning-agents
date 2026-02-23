@@ -8,6 +8,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 import jwt
 from jwt import InvalidTokenError
@@ -34,6 +35,21 @@ def _parse_csv(value: Optional[str]) -> Tuple[str, ...]:
     return tuple(item.strip() for item in value.split(",") if item.strip())
 
 
+def _normalize_issuer(value: str) -> str:
+    return value.strip().rstrip("/")
+
+
+def _append_unique(values: Tuple[str, ...], *items: str) -> Tuple[str, ...]:
+    seen = {item for item in values if item}
+    out = list(values)
+    for item in items:
+        if not item or item in seen:
+            continue
+        out.append(item)
+        seen.add(item)
+    return tuple(out)
+
+
 @dataclass(frozen=True)
 class EntraAuthConfig:
     tenant_id: Optional[str]
@@ -51,7 +67,10 @@ class EntraTokenValidator:
 
     def __init__(self, config: EntraAuthConfig) -> None:
         self._config = config
-        self._issuers = set(config.issuers)
+        self._issuers = {item for item in config.issuers if item}
+        self._normalized_issuers = {
+            _normalize_issuer(item) for item in config.issuers if item
+        }
         self._jwks_uri = config.jwks_uri
         self._jwks_keys: Dict[str, Any] = {}
         self._jwks_expires_at = 0.0
@@ -195,8 +214,17 @@ class EntraTokenValidator:
                 "Bearer token validation failed."
             ) from exc
 
+        token_tenant = claims.get("tid")
+        if (
+            self._config.tenant_id
+            and isinstance(token_tenant, str)
+            and token_tenant
+            and token_tenant != self._config.tenant_id
+        ):
+            raise EntraUnauthorizedError("Bearer token tenant is not allowed.")
+
         issuer = claims.get("iss")
-        if not issuer or issuer not in self._issuers:
+        if not issuer or _normalize_issuer(issuer) not in self._normalized_issuers:
             raise EntraUnauthorizedError("Bearer token issuer is not allowed.")
 
         self._enforce_permissions(claims)
@@ -227,6 +255,28 @@ def build_entra_validator() -> Optional[EntraTokenValidator]:
             f"https://login.microsoftonline.com/{tenant_id}/v2.0",
             f"https://sts.windows.net/{tenant_id}/",
         )
+
+    # CIAM tokens can legitimately use the configured ciamlogin authority host.
+    # Add this issuer family automatically when FRONTEND_AUTHORITY targets ciamlogin.
+    frontend_authority = (os.environ.get("FRONTEND_AUTHORITY") or "").strip().rstrip("/")
+    if tenant_id and frontend_authority:
+        parsed = urlparse(frontend_authority)
+        if ".ciamlogin.com" in (parsed.netloc or "").lower():
+            ciam_issuer_by_id = f"{frontend_authority}/{tenant_id}/v2.0"
+            issuers = _append_unique(
+                issuers,
+                ciam_issuer_by_id,
+                f"{ciam_issuer_by_id}/",
+            )
+
+            tenant_domain = (os.environ.get("ENTRA_TENANT_DOMAIN") or "").strip()
+            if tenant_domain:
+                ciam_issuer_by_domain = f"{frontend_authority}/{tenant_domain}/v2.0"
+                issuers = _append_unique(
+                    issuers,
+                    ciam_issuer_by_domain,
+                    f"{ciam_issuer_by_domain}/",
+                )
 
     jwks_uri = os.environ.get("ENTRA_JWKS_URI")
 

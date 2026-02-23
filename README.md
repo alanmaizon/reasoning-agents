@@ -124,6 +124,7 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 | `ENTRA_REQUIRED_SCOPES` | Optional | Required delegated scopes, comma-separated |
 | `ENTRA_REQUIRED_ROLES` | Optional | Required app roles, comma-separated |
 | `ENTRA_ISSUER` / `ENTRA_ISSUERS` | Optional | Override allowed issuer(s), comma-separated when multiple |
+| `ENTRA_TENANT_DOMAIN` | Optional | External ID tenant domain (e.g., `contoso.onmicrosoft.com`) for CIAM issuer variants |
 | `ENTRA_JWKS_URI` | Optional | Override JWKS endpoint URL |
 | `FRONTEND_CLIENT_ID` | Recommended when auth enabled | SPA app registration client ID used by built-in frontend |
 | `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (for CIAM: `https://<tenant>.ciamlogin.com`) |
