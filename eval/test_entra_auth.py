@@ -78,3 +78,65 @@ def test_validate_token_rejects_unexpected_issuer(monkeypatch):
 
     with pytest.raises(entra_auth.EntraUnauthorizedError):
         validator.validate_token("token")
+
+
+def test_validate_token_allows_issuer_variant_when_tenant_matches(monkeypatch):
+    cfg = entra_auth.EntraAuthConfig(
+        tenant_id="tid-123",
+        issuers=("iss-allowed",),
+        jwks_uri="https://example.test/keys",
+        audiences=("api://demo",),
+        required_scopes=(),
+        required_roles=(),
+        timeout_seconds=1.0,
+        jwks_cache_ttl_seconds=60,
+    )
+    validator = entra_auth.EntraTokenValidator(cfg)
+
+    monkeypatch.setattr(
+        entra_auth.jwt, "get_unverified_header", lambda _token: {"kid": "k1"}
+    )
+    monkeypatch.setattr(validator, "_signing_key", lambda _kid: "fake-key")
+    monkeypatch.setattr(
+        entra_auth.jwt,
+        "decode",
+        lambda *args, **kwargs: {
+            "iss": "iss-provider-specific-variant",
+            "tid": "tid-123",
+            "exp": 9999999999,
+        },
+    )
+
+    claims = validator.validate_token("token")
+    assert claims["tid"] == "tid-123"
+
+
+def test_validate_token_rejects_mismatched_tenant_even_if_signature_valid(monkeypatch):
+    cfg = entra_auth.EntraAuthConfig(
+        tenant_id="tid-expected",
+        issuers=("iss-allowed",),
+        jwks_uri="https://example.test/keys",
+        audiences=("api://demo",),
+        required_scopes=(),
+        required_roles=(),
+        timeout_seconds=1.0,
+        jwks_cache_ttl_seconds=60,
+    )
+    validator = entra_auth.EntraTokenValidator(cfg)
+
+    monkeypatch.setattr(
+        entra_auth.jwt, "get_unverified_header", lambda _token: {"kid": "k1"}
+    )
+    monkeypatch.setattr(validator, "_signing_key", lambda _kid: "fake-key")
+    monkeypatch.setattr(
+        entra_auth.jwt,
+        "decode",
+        lambda *args, **kwargs: {
+            "iss": "iss-allowed",
+            "tid": "tid-other",
+            "exp": 9999999999,
+        },
+    )
+
+    with pytest.raises(entra_auth.EntraUnauthorizedError):
+        validator.validate_token("token")

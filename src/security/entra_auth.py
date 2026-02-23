@@ -224,8 +224,20 @@ class EntraTokenValidator:
             raise EntraUnauthorizedError("Bearer token tenant is not allowed.")
 
         issuer = claims.get("iss")
-        if not issuer or _normalize_issuer(issuer) not in self._normalized_issuers:
-            raise EntraUnauthorizedError("Bearer token issuer is not allowed.")
+        if not issuer:
+            raise EntraUnauthorizedError("Bearer token issuer is missing.")
+
+        # In CIAM/B2C style flows, issuer formatting can vary across providers/user flows.
+        # If tenant is explicitly pinned and token tid matches, rely on tenant + audience
+        # + signature checks instead of exact issuer-string matching.
+        if not (
+            self._config.tenant_id
+            and isinstance(token_tenant, str)
+            and token_tenant
+            and token_tenant == self._config.tenant_id
+        ):
+            if _normalize_issuer(issuer) not in self._normalized_issuers:
+                raise EntraUnauthorizedError("Bearer token issuer is not allowed.")
 
         self._enforce_permissions(claims)
         return claims
