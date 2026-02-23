@@ -1,18 +1,23 @@
-name: Deploy To Azure VM
+name: CI and Deploy To Azure VM
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches:
       - main
   workflow_dispatch:
 
 concurrency:
-  group: deploy-vm
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  ci:
+    name: CI
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -21,6 +26,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: pip
 
       - name: Install Dependencies
         run: pip install -r requirements.txt
@@ -30,6 +36,17 @@ jobs:
 
       - name: Run Tests
         run: pytest -q
+
+  deploy:
+    name: Deploy To VM
+    needs: ci
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Configure SSH Key
         env:

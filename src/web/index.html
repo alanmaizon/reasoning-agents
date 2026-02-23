@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MDT Console</title>
+    <title>Condor Console</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -17,8 +17,8 @@
     <div class="bg-orb bg-orb-b"></div>
     <main class="layout">
       <header class="hero reveal">
-        <p class="mono eyebrow">Misconception-Driven Tutor</p>
-        <h1>AZ-900 Coaching Workspace</h1>
+        <p class="mono eyebrow">Condor</p>
+        <h1>Condor AZ-900 Coaching Workspace</h1>
         <p class="subhead">
           Start a session, answer the exam, and get grounded coaching with
           Entra-secured API calls.
@@ -40,16 +40,19 @@
             <input id="userId" type="text" required value="alan" />
           </label>
           <label>
+            Session Mode
+            <select id="sessionMode">
+              <option value="adaptive">Adaptive coaching</option>
+              <option value="mock_test">Mock AZ-900 test</option>
+            </select>
+          </label>
+          <label>
             Focus Topics (comma-separated)
             <input
               id="focusTopics"
               type="text"
               placeholder="Security, Governance"
             />
-          </label>
-          <label>
-            Minutes
-            <input id="minutes" type="number" min="1" max="120" value="25" />
           </label>
           <label class="checkbox">
             <input id="offlineMode" type="checkbox" />
@@ -59,8 +62,9 @@
         </form>
       </section>
 
-      <section class="panel reveal">
+      <section id="planExamPanel" class="panel exam-panel reveal">
         <h2>Plan + Exam</h2>
+        <div id="examLockHint" class="banner info exam-lock-hint" hidden></div>
         <div id="planMeta" class="mono small">No session started yet.</div>
         <div id="examContainer" class="exam-list"></div>
         <button id="submitBtn" class="btn accent" type="button" disabled>
@@ -70,6 +74,16 @@
 
       <section class="panel reveal">
         <h2>Diagnosis + Coaching</h2>
+        <article>
+          <h3>Evaluation Summary</h3>
+          <div id="evaluationSummary" class="evaluation-summary">
+            <p class="small">Submit your quiz to calculate your estimated AZ-900 score.</p>
+          </div>
+        </article>
+        <article>
+          <h3>Answer Review</h3>
+          <div id="answerReviewList" class="review-list"></div>
+        </article>
         <div class="grid-two">
           <article>
             <h3>Top Misconceptions</h3>

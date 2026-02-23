@@ -1,4 +1,4 @@
-# MDT — Misconception-Driven Tutor
+# Condor — AZ-900 Reasoning Tutor
 
 > **AZ-900 Certification Prep** • Multi-agent system powered by Microsoft Foundry
 
@@ -11,15 +11,32 @@ An Agents League "Reasoning Agents" submission that helps students prepare for t
 - **MCP grounding**: GroundingVerifierAgent uses Microsoft Learn docs via MCPTool with strict allow-listing
 - **Persistent state**: local JSON for CLI, Azure Blob-backed state for hosted API mode
 - **Offline mode**: Full stub outputs for testing without API calls
+- **Mock test mode**: Randomized 40-60 question exams sampled from a larger AZ-900 bank
 - **Schema-validated**: All agent communication uses Pydantic-enforced JSON schemas
 - **Hosted API**: FastAPI endpoints for Azure App Service deployment
+
+## AZ-900 Exam Snapshot (Official)
+
+- Passing score: **700/1000**
+- Fundamentals exam duration: **45 minutes** exam time (with **65-minute** seat time)
+- Typical Microsoft certification item volume: **40-60 questions** (exact AZ-900 count can vary)
+
+Current skill distribution:
+1. Describe cloud concepts (25-30%)
+2. Describe Azure architecture and services (35-40%)
+3. Describe Azure management and governance (30-35%)
+
+References:
+- https://learn.microsoft.com/en-us/credentials/certifications/azure-fundamentals/
+- https://learn.microsoft.com/en-us/credentials/support/exam-duration-exam-experience
+- https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/az-900
 
 ## Architecture
 
 ```mermaid
 flowchart TB
     subgraph Intake
-        A[Student] -->|focus topics, minutes| B[CLI]
+        A[Student] -->|focus topics + session mode| B[CLI or API]
     end
     subgraph Agents
         B --> C[PlannerAgent]
@@ -77,8 +94,8 @@ START_JSON="$(curl -sS -X POST http://127.0.0.1:8000/v1/session/start \
   -H 'Content-Type: application/json' \
   -d '{
     "user_id": "alice",
+    "mode": "adaptive",
     "focus_topics": ["Security", "Cloud Concepts"],
-    "minutes": 25,
     "offline": true
   }')"
 
@@ -234,13 +251,18 @@ Optional overrides:
 
 Workflow file: `.github/workflows/deploy_vm.yml`
 
-It runs on push to `main` and:
+It now runs with:
 
-1. Installs dependencies
-2. Runs `pytest -q`
-3. Deploys code to the VM
-4. Restarts `mdt-api`
-5. Runs a health check (if configured)
+1. `pull_request` to `main`: CI only (install, leak guard, tests)
+2. `push` to `main`: CI, then deploy to VM
+3. `workflow_dispatch`: CI, then deploy to VM (manual run)
+
+Deployment job details:
+
+1. Configures SSH key from GitHub secret
+2. Uploads repository package to VM
+3. Restarts `mdt-api` service
+4. Runs health check if `HEALTHCHECK_URL` is set
 
 Set these repository secrets:
 
@@ -257,6 +279,11 @@ Example health check URL:
 ```text
 https://<your-domain>/healthz
 ```
+
+Recommended:
+
+- Create GitHub Environment `production` and place deploy secrets there.
+- Add required reviewer approval on `production` if you want protected deploys.
 
 ## Observability Setup (VM)
 
@@ -286,7 +313,7 @@ Operations runbook: `docs/runbook_ops.md`
 | **Tool allow-listing** | Only read-only Learn MCP tools are permitted (`microsoft_docs_search`, `microsoft_docs_fetch`, `microsoft_code_sample_search`) |
 | **Citation grounding** | Every explanation requires ≥1 citation; fallback: "Insufficient evidence" |
 | **Schema validation** | Pydantic enforces JSON contracts between all agents |
-| **Rate limiting** | Disk-backed URL cache; quiz capped at 12 questions |
+| **Rate limiting** | Disk-backed URL cache; adaptive quiz targets 8-12 questions and mock mode serves 40-60 |
 | **Defensive parsing** | JSON extraction handles markdown fences, retries on non-JSON |
 
 ### Secret Hygiene

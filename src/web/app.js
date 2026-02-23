@@ -4,8 +4,13 @@ const state = {
   token: null,
   account: null,
   exam: null,
+  sessionMode: "adaptive",
   answers: {},
+  planMetaBase: "",
   authBusy: false,
+  submitting: false,
+  examLocked: false,
+  examSubmitted: false,
 };
 
 const MSAL_SOURCES = [
@@ -23,16 +28,42 @@ const el = {
   logoutBtn: document.getElementById("logoutBtn"),
   startForm: document.getElementById("startForm"),
   userId: document.getElementById("userId"),
+  sessionMode: document.getElementById("sessionMode"),
   focusTopics: document.getElementById("focusTopics"),
-  minutes: document.getElementById("minutes"),
   offlineMode: document.getElementById("offlineMode"),
+  planExamPanel: document.getElementById("planExamPanel"),
+  examLockHint: document.getElementById("examLockHint"),
   planMeta: document.getElementById("planMeta"),
   examContainer: document.getElementById("examContainer"),
   submitBtn: document.getElementById("submitBtn"),
+  evaluationSummary: document.getElementById("evaluationSummary"),
+  answerReviewList: document.getElementById("answerReviewList"),
   misconceptionList: document.getElementById("misconceptionList"),
   lessonList: document.getElementById("lessonList"),
   groundedList: document.getElementById("groundedList"),
 };
+
+const AZ900_PASS_SCORE = 700;
+const AZ900_SCORE_MAX = 1000;
+const AZ900_EXAM_TIME_MINUTES = 45;
+
+function modeLabel(mode) {
+  if (mode === "mock_test") {
+    return "Mock AZ-900 test";
+  }
+  return "Adaptive coaching";
+}
+
+function syncModeInputs() {
+  const isMockTest = (el.sessionMode.value || "adaptive") === "mock_test";
+  el.focusTopics.disabled = isMockTest;
+  el.focusTopics.placeholder = isMockTest
+    ? "Not used in mock test mode"
+    : "Security, Governance";
+  if (isMockTest) {
+    el.focusTopics.value = "";
+  }
+}
 
 function hasMsal() {
   return Boolean(window.msal?.PublicClientApplication);
@@ -127,6 +158,36 @@ function setFormsEnabled(enabled) {
   }
 }
 
+function setExamAccessibility(locked, message = "") {
+  state.examLocked = Boolean(locked);
+  const panel = el.planExamPanel;
+  if (panel) {
+    panel.classList.toggle("locked", state.examLocked);
+    if (state.examLocked) {
+      panel.setAttribute("aria-disabled", "true");
+    } else {
+      panel.removeAttribute("aria-disabled");
+    }
+  }
+
+  if (el.examLockHint) {
+    if (state.examLocked && message) {
+      el.examLockHint.textContent = message;
+      el.examLockHint.hidden = false;
+    } else {
+      el.examLockHint.hidden = true;
+      el.examLockHint.textContent = "";
+    }
+  }
+
+  el.examContainer.querySelectorAll("input, select").forEach((control) => {
+    control.disabled = state.examLocked || state.submitting || state.examSubmitted;
+  });
+
+  const hasExam = Boolean(state.exam?.questions?.length);
+  el.submitBtn.disabled = !hasExam || state.examLocked || state.submitting || state.examSubmitted;
+}
+
 function msalErrorCode(err) {
   if (!err || typeof err !== "object") {
     return "";
@@ -175,6 +236,64 @@ async function apiJson(path, payload) {
   return data;
 }
 
+function stripChoicePrefix(choice) {
+  const text = String(choice);
+  const match = text.match(/^[A-D]\)\s*(.*)$/);
+  return match ? match[1] : text;
+}
+
+function isDropdownQuestion(question) {
+  return typeof question?.stem === "string" && question.stem.includes("[Dropdown Menu]");
+}
+
+function renderDropdownSentence(question) {
+  const select = `
+    <select class="dropdown-answer" data-qid="${escapeHtml(question.id)}">
+      <option value="">Select an option</option>
+      ${question.choices
+        .map((choice, idx) => `<option value="${idx}">${escapeHtml(stripChoicePrefix(choice))}</option>`)
+        .join("")}
+    </select>
+  `;
+
+  const token = "[Dropdown Menu]";
+  const stem = String(question.stem);
+  if (!stem.includes(token)) {
+    return `<p class="dropdown-sentence">${escapeHtml(stem)}</p>${select}`;
+  }
+
+  const parts = stem.split(token);
+  const before = parts.shift() || "";
+  const after = parts.join(token);
+  return `<p class="dropdown-sentence">${escapeHtml(before)}${select}${escapeHtml(after)}</p>`;
+}
+
+function updateQuestionProgress() {
+  if (!state.exam?.questions?.length) {
+    return;
+  }
+
+  let answered = 0;
+  for (const question of state.exam.questions) {
+    const hasAnswer = typeof state.answers[question.id] === "number";
+    if (hasAnswer) {
+      answered += 1;
+    }
+
+    const statusEl = el.examContainer.querySelector(`[data-qstatus="${question.id}"]`);
+    if (!statusEl) {
+      continue;
+    }
+    statusEl.textContent = hasAnswer ? "Answered" : "Not answered";
+    statusEl.classList.toggle("answered", hasAnswer);
+    statusEl.classList.toggle("unanswered", !hasAnswer);
+  }
+
+  if (state.planMetaBase) {
+    el.planMeta.textContent = `${state.planMetaBase} | Answered: ${answered}/${state.exam.questions.length}`;
+  }
+}
+
 function renderExam(exam) {
   if (!exam?.questions?.length) {
     el.examContainer.innerHTML = "";
@@ -182,24 +301,31 @@ function renderExam(exam) {
   }
 
   el.examContainer.innerHTML = exam.questions
-    .map((q) => {
-      const choices = q.choices
-        .map(
-          (choice, idx) => `
-            <label class="choice">
-              <input type="radio" name="q_${escapeHtml(q.id)}" value="${idx}" />
-              <span>${escapeHtml(choice)}</span>
-            </label>
-          `
-        )
-        .join("");
+    .map((q, idx) => {
+      const answerControl = isDropdownQuestion(q)
+        ? renderDropdownSentence(q)
+        : q.choices
+            .map(
+              (choice, choiceIdx) => `
+                <label class="choice">
+                  <input type="radio" name="q_${escapeHtml(q.id)}" value="${choiceIdx}" />
+                  <span>${escapeHtml(stripChoicePrefix(choice))}</span>
+                </label>
+              `
+            )
+            .join("");
 
       return `
-        <article class="question">
-          <div class="q-head">Q${escapeHtml(q.id)} · ${escapeHtml(q.domain)}</div>
-          <div>${escapeHtml(q.stem)}</div>
-          <div>${choices}</div>
-        </article>
+        <details class="question accordion-question" data-question-id="${escapeHtml(q.id)}" ${idx === 0 ? "open" : ""}>
+          <summary class="accordion-summary">
+            <span class="q-head">Q${escapeHtml(q.id)} · ${escapeHtml(q.domain)}</span>
+            <span class="question-status unanswered" data-qstatus="${escapeHtml(q.id)}">Not answered</span>
+          </summary>
+          <div class="accordion-body">
+            ${isDropdownQuestion(q) ? "" : `<p>${escapeHtml(q.stem)}</p>`}
+            <div>${answerControl}</div>
+          </div>
+        </details>
       `;
     })
     .join("");
@@ -237,6 +363,109 @@ function renderResults(result) {
         })
         .join("")
     : "<p class='small'>No grounded explanations (all answers may be correct).</p>";
+}
+
+function renderEvaluationSummary(diagnosis) {
+  if (!state.exam?.questions?.length) {
+    el.evaluationSummary.innerHTML = "<p class='small'>No quiz loaded.</p>";
+    return;
+  }
+
+  const questions = state.exam.questions;
+  const total = questions.length;
+  const diagnosisById = new Map((diagnosis?.results || []).map((r) => [r.id, r]));
+  const correctCount = questions.reduce((count, question) => {
+    const byDiagnosis = diagnosisById.get(question.id);
+    if (typeof byDiagnosis?.correct === "boolean") {
+      return count + (byDiagnosis.correct ? 1 : 0);
+    }
+    return count + (state.answers[question.id] === question.answer_key ? 1 : 0);
+  }, 0);
+  const unansweredCount = questions.reduce(
+    (count, question) => count + (typeof state.answers[question.id] === "number" ? 0 : 1),
+    0
+  );
+
+  const accuracy = total > 0 ? correctCount / total : 0;
+  const accuracyPct = Math.round(accuracy * 100);
+  const scaledScore = Math.round(accuracy * AZ900_SCORE_MAX);
+  const passed = scaledScore >= AZ900_PASS_SCORE;
+  const resultText = passed ? "Pass estimate" : "Below pass estimate";
+  const modeNote =
+    state.sessionMode === "mock_test"
+      ? "Mock mode uses a randomized 40-60 question range. This scaled score is an estimate."
+      : "Adaptive mode is coaching-focused. This scaled score is an estimate.";
+
+  el.evaluationSummary.innerHTML = `
+    <div class="eval-grid">
+      <div class="eval-chip">
+        <div class="eval-label">Estimated score</div>
+        <div class="eval-value">${scaledScore}/${AZ900_SCORE_MAX}</div>
+      </div>
+      <div class="eval-chip">
+        <div class="eval-label">Correct answers</div>
+        <div class="eval-value">${correctCount}/${total}</div>
+      </div>
+      <div class="eval-chip">
+        <div class="eval-label">Accuracy</div>
+        <div class="eval-value">${accuracyPct}%</div>
+      </div>
+      <div class="eval-chip">
+        <div class="eval-label">Estimated result</div>
+        <div class="eval-value eval-status ${passed ? "pass" : "warn"}">${resultText}</div>
+      </div>
+    </div>
+    <p class="small">
+      AZ-900 pass target: ${AZ900_PASS_SCORE}/${AZ900_SCORE_MAX}. Fundamentals exam time is about ${AZ900_EXAM_TIME_MINUTES} minutes and production exams are typically 40-60 questions.
+    </p>
+    <p class="small">${modeNote}${unansweredCount > 0 ? ` Unanswered: ${unansweredCount}.` : ""}</p>
+  `;
+}
+
+function clearResults() {
+  el.evaluationSummary.innerHTML = "<p class='small'>Submit your quiz to calculate your estimated AZ-900 score.</p>";
+  el.answerReviewList.innerHTML = "<p class='small'>Submit your quiz to see answer review.</p>";
+  el.misconceptionList.innerHTML = "<li>Start a session and submit answers.</li>";
+  el.lessonList.innerHTML = "<li>Start a session and submit answers.</li>";
+  el.groundedList.innerHTML = "<p class='small'>No grounded explanations yet.</p>";
+}
+
+function renderAnswerReview(diagnosis) {
+  if (!state.exam?.questions?.length) {
+    el.answerReviewList.innerHTML = "<p class='small'>No quiz loaded.</p>";
+    return;
+  }
+
+  const diagById = new Map((diagnosis?.results || []).map((r) => [r.id, r]));
+  el.answerReviewList.innerHTML = state.exam.questions
+    .map((q) => {
+      const selected = state.answers[q.id];
+      const diag = diagById.get(q.id);
+      const correct = diag ? Boolean(diag.correct) : selected === q.answer_key;
+      const selectedText =
+        typeof selected === "number" && q.choices[selected]
+          ? q.choices[selected]
+          : "No answer submitted";
+      const correctText = q.choices[q.answer_key] || "n/a";
+      const why =
+        typeof diag?.why === "string" && diag.why.trim()
+          ? diag.why.trim()
+          : q.rationale_draft;
+
+      return `
+        <article class="review-item ${correct ? "review-correct" : "review-wrong"}">
+          <div class="review-head">
+            <span class="mono small">Q${escapeHtml(q.id)} · ${escapeHtml(q.domain)}</span>
+            <span class="review-badge">${correct ? "Correct" : "Incorrect"}</span>
+          </div>
+          <p>${escapeHtml(q.stem)}</p>
+          <p><strong>Your answer:</strong> ${escapeHtml(selectedText)}</p>
+          <p><strong>Correct answer:</strong> ${escapeHtml(correctText)}</p>
+          <p class="small"><strong>Why:</strong> ${escapeHtml(why)}</p>
+        </article>
+      `;
+    })
+    .join("");
 }
 
 async function ensureToken() {
@@ -398,29 +627,34 @@ async function startSession(event) {
     await ensureToken();
     const payload = {
       user_id: el.userId.value.trim(),
+      mode: el.sessionMode.value || "adaptive",
       focus_topics: el.focusTopics.value
         .split(",")
         .map((s) => s.trim())
         .filter(Boolean),
-      minutes: Number(el.minutes.value || 25),
       offline: Boolean(el.offlineMode.checked),
     };
     const result = await apiJson("/v1/session/start", payload);
 
     state.exam = result.exam;
+    state.sessionMode = result.mode || payload.mode;
     state.answers = {};
+    state.submitting = false;
+    state.examSubmitted = false;
 
     const domains = (result.plan?.domains || []).join(", ");
-    el.planMeta.textContent = `Plan domains: ${domains || "n/a"} | Questions: ${
-      result.exam?.questions?.length || 0
-    }`;
+    const modeText = modeLabel(state.sessionMode);
+    state.planMetaBase = `Mode: ${modeText} | Plan domains: ${domains || "n/a"} | Questions: ${result.exam?.questions?.length || 0}`;
+    el.planMeta.textContent = state.planMetaBase;
     renderExam(result.exam);
-    el.submitBtn.disabled = false;
+    clearResults();
+    updateQuestionProgress();
+    setExamAccessibility(false);
 
     if ((result.warnings || []).length > 0) {
       setBanner("warn", `Session started with warnings: ${result.warnings.join(" | ")}`);
     } else {
-      setBanner("info", "Session started.");
+      setBanner("info", `${modeText} started.`);
     }
   } catch (err) {
     setBanner("error", `Start failed: ${err.message}`);
@@ -428,9 +662,11 @@ async function startSession(event) {
 }
 
 async function submitSession() {
-  if (!state.exam) {
+  if (!state.exam || state.submitting || state.examSubmitted) {
     return;
   }
+  state.submitting = true;
+  setExamAccessibility(true, "Submitting answers. Plan + Exam is locked.");
   try {
     await ensureToken();
     const payload = {
@@ -441,21 +677,67 @@ async function submitSession() {
     };
     const result = await apiJson("/v1/session/submit", payload);
     renderResults(result);
+    renderEvaluationSummary(result?.diagnosis);
+    renderAnswerReview(result?.diagnosis);
+    state.examSubmitted = true;
+    state.submitting = false;
+    setExamAccessibility(true, "Answers submitted. Start a new session to edit or retake.");
     setBanner("info", "Submission completed.");
   } catch (err) {
+    state.submitting = false;
+    setExamAccessibility(false);
     setBanner("error", `Submit failed: ${err.message}`);
   }
 }
 
 function bindEvents() {
   el.startForm.addEventListener("submit", startSession);
-  el.examContainer.addEventListener("change", (event) => {
-    const target = event.target;
-    if (!(target instanceof HTMLInputElement) || target.type !== "radio") {
+  el.sessionMode.addEventListener("change", () => {
+    syncModeInputs();
+  });
+  el.examContainer.addEventListener("toggle", (event) => {
+    if (state.examLocked || state.submitting || state.examSubmitted) {
       return;
     }
-    const qid = target.name.replace(/^q_/, "");
-    state.answers[qid] = Number(target.value);
+    const target = event.target;
+    if (!(target instanceof HTMLDetailsElement)) {
+      return;
+    }
+    if (!target.classList.contains("accordion-question") || !target.open) {
+      return;
+    }
+    el.examContainer
+      .querySelectorAll("details.accordion-question[open]")
+      .forEach((detailsEl) => {
+        if (detailsEl !== target) {
+          detailsEl.open = false;
+        }
+      });
+  }, true);
+  el.examContainer.addEventListener("change", (event) => {
+    if (state.examLocked || state.submitting || state.examSubmitted) {
+      return;
+    }
+    const target = event.target;
+    if (target instanceof HTMLInputElement && target.type === "radio") {
+      const qid = target.name.replace(/^q_/, "");
+      state.answers[qid] = Number(target.value);
+      updateQuestionProgress();
+      return;
+    }
+    if (target instanceof HTMLSelectElement && target.classList.contains("dropdown-answer")) {
+      const qid = target.dataset.qid;
+      if (!qid) {
+        return;
+      }
+      if (target.value === "") {
+        delete state.answers[qid];
+      } else {
+        state.answers[qid] = Number(target.value);
+      }
+      updateQuestionProgress();
+      return;
+    }
   });
   el.submitBtn.addEventListener("click", submitSession);
   el.loginBtn.addEventListener("click", async () => {
@@ -491,6 +773,9 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  syncModeInputs();
+  clearResults();
+  setExamAccessibility(false);
   try {
     const response = await fetch("/frontend-config");
     state.config = await response.json();

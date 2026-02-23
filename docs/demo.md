@@ -1,6 +1,6 @@
-# Demo Script — MDT (Misconception-Driven Tutor)
+# Demo Script - Condor (AZ-900 Reasoning Tutor)
 
-> Estimated time: ~90 seconds
+Estimated time: 2-3 minutes.
 
 ## Prerequisites
 
@@ -10,125 +10,104 @@ source .venv/bin/activate  # or .venv\Scripts\activate on Windows
 pip install -r requirements.txt
 ```
 
-## Running the Demo (Offline Mode)
+## Start the app (web demo)
 
 ```bash
-python -m src.main --offline
+uvicorn src.api:app --reload --port 8000
 ```
 
-## Step-by-Step Walkthrough
+Open `http://127.0.0.1:8000/`.
 
-### 1. Launch (5s)
-The CLI shows the MDT banner and prompts for focus topics.
+## Demo flow
 
-```
-┌──────────────────────────────────────────────┐
-│ MDT — Misconception-Driven Tutor             │
-│ AZ-900 Certification Prep • Powered by       │
-│ Microsoft Foundry                             │
-└──────────────────────────────────────────────┘
+### 1. Session setup (15s)
 
-▶ 1/7  Student intake
-Optional: Enter focus topics (comma-separated) or press Enter to skip:
-> Security, Cloud Concepts
-Optional: Daily study minutes (default 30):
-> 20
-```
+In the Condor UI:
+1. Enter a `User ID`.
+2. Choose `Session Mode`:
+   - `Adaptive coaching` (typically 8-12 questions)
+   - `Mock AZ-900 test` (randomized 40-60 questions)
+3. (Adaptive only) Enter optional `Focus Topics`.
+4. Click `Start Session`.
 
-### 2. Planning (5s)
-PlannerAgent selects domains and question count.
+Expected:
+- Plan metadata appears (`Mode`, `domains`, `question count`).
+- Quiz cards render in accordion format.
 
-```
-▶ 2/7  Planning study session
-  Domains: ['Cloud Concepts', 'Azure Architecture', 'Security']  |  Questions: 8
-```
+### 2. Quiz interaction (30-45s)
 
-### 3. Quiz Generation (5s)
-ExaminerAgent creates 8 multiple-choice questions.
+Answer a few questions.
 
-```
-▶ 3/7  Generating adaptive quiz
-  Generated 8 questions
-```
+Expected:
+- Only one accordion question stays open at a time.
+- Status chips update per question (`Answered` / `Not answered`).
+- Progress line updates (example: `Answered: 6/48`).
 
-### 4. Quiz Time (30s)
-Student answers each question interactively.
+### 3. Dropdown sentence-completion question (20s)
 
-```
-▶ 4/7  Quiz time!
+In mock mode, find a question containing `[Dropdown Menu]`.
 
-Q1. Which cloud model allows organizations to share responsibility...
-   1) Private cloud only
-   2) Shared responsibility model
-   3) On-premises model
-   4) Hybrid DNS model
-Your answer (number): 2
-```
+Expected:
+- The sentence shows a `<select>` dropdown embedded in the sentence.
+- Selecting an option saves the answer and updates status/progress.
 
-### 5. Diagnosis (10s)
-MisconceptionAgent analyzes answers and identifies patterns.
+Example pattern:
+- `An example of [Dropdown Menu] is ...`
+- Options are concept terms (for example: Horizontal scaling, Vertical scaling, High availability, Low latency).
 
-```
-▶ 5/7  Diagnosing misconceptions
-┌────────────────────────────────────────┐
-│           Diagnosis Summary            │
-├──┬──────────┬──────────────┬───────────┤
-│Q │ Correct? │ Misconception│ Why       │
-├──┼──────────┼──────────────┼───────────┤
-│1 │    ✅    │      —       │ Correct   │
-│2 │    ❌    │   REGION     │ Confused  │
-│...                                     │
-└────────────────────────────────────────┘
-Top misconceptions: REGION, SRM
-```
+### 4. Submit and evaluate (25s)
 
-### 6. Grounding (15s)
-GroundingVerifierAgent attaches Microsoft Learn citations.
+Click `Submit Answers`.
 
-```
-▶ 6/7  Grounding explanations with Microsoft Learn
-╭─ Grounded Explanation ──────────────────╮
-│ Q2                                      │
-│ The correct answer is choice 2. ...     │
-│                                         │
-│   📎 [Azure regions and availability    │
-│      zones](https://learn.microsoft...):│
-│      Availability Zones are unique ...  │
-╰─────────────────────────────────────────╯
+Expected in `Diagnosis + Coaching`:
+- `Evaluation Summary`:
+  - Estimated score (`x/1000`)
+  - Correct answers (`x/y`)
+  - Accuracy (`%`)
+  - Estimated result vs pass threshold (`700/1000`)
+- `Answer Review` for each question:
+  - Your answer
+  - Correct answer
+  - Why explanation
+- `Top Misconceptions`
+- `Lesson Points`
+- `Grounded Explanations` with Microsoft Learn citations
+
+### 5. Optional: offline behavior (15s)
+
+Enable `Use offline mode` and start another session.
+
+Expected:
+- Session works without live model calls.
+- If online stages fail, API warnings indicate fallback.
+
+## API sanity checks (optional)
+
+```bash
+curl -sS http://127.0.0.1:8000/healthz
 ```
 
-### 7. Coaching (10s)
-CoachAgent provides remediation and drills.
+Start adaptive:
 
-```
-▶ 7/7  Generating coaching & micro-drills
-📚 Coaching Notes
-  • Review the shared responsibility model
-  • Availability Zones provide HA within a single region
-
-  Drill (REGION):
-    → Explain the concept related to REGION in your own words.
-    → Give a real-world example where REGION confusion could cause issues.
-
-✅ Session complete. State saved.
+```bash
+curl -sS -X POST http://127.0.0.1:8000/v1/session/start \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"demo","mode":"adaptive","focus_topics":["Security"],"offline":true}' | jq '{mode, q: (.exam.questions|length)}'
 ```
 
-## Expected Output Screenshots
+Start mock:
 
-> *[Screenshot placeholder: CLI banner]*
->
-> *[Screenshot placeholder: Quiz interaction]*
->
-> *[Screenshot placeholder: Diagnosis table]*
->
-> *[Screenshot placeholder: Grounded explanations]*
->
-> *[Screenshot placeholder: Coaching output]*
+```bash
+curl -sS -X POST http://127.0.0.1:8000/v1/session/start \
+  -H 'Content-Type: application/json' \
+  -d '{"user_id":"demo","mode":"mock_test","offline":true}' | jq '{mode, q: (.exam.questions|length)}'
+```
 
-## Running with Foundry (Online Mode)
+## Screenshot checklist
 
-1. Copy `.env.example` to `.env` and fill in your Azure AI Foundry credentials
-2. Run without `--offline`:
-   ```bash
-   python -m src.main
-   ```
+- Session setup with `Session Mode` selector
+- Accordion question list with status chips
+- Dropdown sentence-completion question
+- Evaluation Summary panel
+- Answer Review panel
+- Grounded Explanations with citations
