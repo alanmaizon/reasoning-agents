@@ -543,7 +543,7 @@ async function handleLogin() {
   }
 
   setAuthBusy(true);
-  setBanner("info", "Redirecting to Microsoft sign-in...");
+  setBanner("info", "Redirecting to Condor sign-in...");
   setFormsEnabled(false);
   try {
     await state.msal.loginRedirect({
