@@ -250,6 +250,20 @@ Optional overrides:
 - `APP_DIR` (default `/home/<VM_USER>/app`)
 - `SERVICE_NAME` (default `mdt-api`)
 
+## Entra External ID User Flow (CLI)
+
+If you already have an External ID tenant, you can create/reuse a Sign-up and Sign-in flow with:
+
+```bash
+export EXTERNAL_TENANT_ID=<external-tenant-guid>
+export USER_FLOW_ID=B2C_1_condor_signup_signin   # optional
+bash scripts/azure/setup_external_id_user_flow.sh
+```
+
+Requirements:
+- Azure CLI logged in with access to the external tenant.
+- Delegated Microsoft Graph permission to manage user flows (`IdentityUserFlow.ReadWrite.All`).
+
 ## GitHub Actions CI/CD To VM
 
 Workflow file: `.github/workflows/deploy_vm.yml`

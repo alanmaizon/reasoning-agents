@@ -14,13 +14,16 @@ from src import api
 
 
 @pytest.fixture(autouse=True)
-def _auth_disabled(monkeypatch):
+def _auth_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(api, "build_entra_validator", lambda: None)
     monkeypatch.setenv("API_RATE_LIMIT_REQUESTS_PER_MINUTE", "0")
+    monkeypatch.setenv("STATE_DIR", str(tmp_path / "state"))
     api._token_validator.cache_clear()
+    api._state_store.cache_clear()
     api._rate_limiter.cache_clear()
     yield
     api._token_validator.cache_clear()
+    api._state_store.cache_clear()
     api._rate_limiter.cache_clear()
 
 

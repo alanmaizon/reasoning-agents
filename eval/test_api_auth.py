@@ -30,12 +30,15 @@ class _ForbiddenValidator:
 
 
 @pytest.fixture(autouse=True)
-def _clear_auth_cache(monkeypatch):
+def _clear_auth_cache(monkeypatch, tmp_path):
     monkeypatch.setenv("API_RATE_LIMIT_REQUESTS_PER_MINUTE", "0")
+    monkeypatch.setenv("STATE_DIR", str(tmp_path / "state"))
     api._token_validator.cache_clear()
+    api._state_store.cache_clear()
     api._rate_limiter.cache_clear()
     yield
     api._token_validator.cache_clear()
+    api._state_store.cache_clear()
     api._rate_limiter.cache_clear()
 
 
