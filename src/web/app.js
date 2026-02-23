@@ -241,8 +241,16 @@ function interactiveAuthRequest(scope) {
     prompt: INTERACTIVE_LOGIN_PROMPT,
   };
   const idpHint = String(state.config?.idp_hint || "").trim();
+  const domainHint = String(state.config?.domain_hint || "").trim();
+  const extraQueryParameters = {};
   if (idpHint) {
-    request.extraQueryParameters = { idp: idpHint };
+    extraQueryParameters.idp = idpHint;
+  }
+  if (domainHint) {
+    extraQueryParameters.domain_hint = domainHint;
+  }
+  if (Object.keys(extraQueryParameters).length > 0) {
+    request.extraQueryParameters = extraQueryParameters;
   }
   return request;
 }

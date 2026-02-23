@@ -130,6 +130,7 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
 | `FRONTEND_AUTHORITY` | Optional | Frontend authority URL (for CIAM: `https://<tenant>.ciamlogin.com`) |
 | `FRONTEND_API_SCOPE` | Recommended when auth enabled | Scope requested by frontend (e.g. `api://<api-app-id>/api.access`) |
 | `FRONTEND_IDP_HINT` | Optional | Identity provider hint passed as `idp` (for Google-first UX, e.g. `Google-OAUTH`) |
+| `FRONTEND_DOMAIN_HINT` | Optional | Domain hint passed as `domain_hint` (for CIAM Google-first UX use `Google`) |
 | `API_RATE_LIMIT_REQUESTS_PER_MINUTE` | Optional | Max requests per identity per minute for `/v1/*` (default: `60`, set `0` to disable) |
 | `API_RATE_LIMIT_WINDOW_SECONDS` | Optional | Rate-limit sliding window in seconds (default: `60`) |
 | `MCP_PROJECT_CONNECTION_NAME` | Optional | MCP connection name if required |
@@ -305,6 +306,7 @@ Notes:
 - `CIAM_GOOGLE_ONLY=true` resolves desired providers to only `Google-OAUTH`.
 - `CIAM_SYNC_IDENTITY_PROVIDERS=true` also updates an existing flow (adds/removes providers to match exactly).
 - If you prefer explicit control, use `CIAM_IDENTITY_PROVIDER_IDS=Google-OAUTH` instead.
+- Set `FRONTEND_DOMAIN_HINT=Google` (and optionally `FRONTEND_IDP_HINT=Google-OAUTH`) to push users directly into Google auth from the SPA flow.
 
 Requirements:
 - Azure CLI logged in with access to the external tenant when using Azure CLI token mode.
