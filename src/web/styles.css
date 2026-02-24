@@ -283,7 +283,7 @@ select {
   top: 1rem;
   right: 1rem;
   width: min(430px, calc(100vw - 2rem));
-  border-radius: 20px;
+  border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.28);
   background:
     linear-gradient(
@@ -298,6 +298,8 @@ select {
   -webkit-backdrop-filter: blur(14px) saturate(135%);
   z-index: 70;
   animation: toastSlideIn 220ms ease;
+  pointer-events: none;
+  padding: 0.72rem 1rem;
 }
 
 .banner.toast.info {

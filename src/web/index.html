@@ -10,31 +10,44 @@
       href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=Space+Grotesk:wght@400;500;700&display=swap"
       rel="stylesheet"
     />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ["Space Grotesk", "Avenir Next", "Segoe UI", "sans-serif"],
+              mono: ["IBM Plex Mono", "ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
+            },
+          },
+        },
+      };
+    </script>
     <link rel="icon" type="image/png" href="/web/logo.png" />
     <link rel="stylesheet" href="/web/styles.css" />
   </head>
-  <body>
+  <body class="font-sans text-slate-900 antialiased">
     <div class="bg-orb bg-orb-a"></div>
     <div class="bg-orb bg-orb-b"></div>
-    <main class="layout">
-      <header class="hero reveal">
-        <div class="brand">
-          <img class="brand-logo" src="/web/logo.png" alt="Condor logo" />
+    <main class="layout mx-auto grid w-[min(1120px,94vw)] gap-5">
+      <header class="hero reveal flex flex-col gap-2">
+        <div class="brand flex items-center gap-4">
+          <img class="brand-logo size-14 rounded-xl" src="/web/logo.png" alt="Condor logo" />
           <div>
-            <p class="mono eyebrow">Condor Console</p>
-            <h1>Readiness Coach</h1>
+            <p class="mono eyebrow font-mono">Condor Console</p>
+            <h1 class="text-3xl font-bold tracking-tight md:text-5xl">Readiness Coach</h1>
           </div>
         </div>
-        <p class="subhead">
+        <p class="subhead max-w-3xl text-base text-slate-600 md:text-lg">
           Practice a realistic AZ-900 session, review every answer, and get
           focused coaching aligned to Microsoft Azure Fundamentals domains.
         </p>
       </header>
 
-      <section class="panel controls reveal">
-        <h2>Session Setup</h2>
+      <section class="panel controls reveal rounded-3xl p-5 md:p-6">
+        <h2 class="text-xl font-semibold">Session Setup</h2>
         <div id="authBanner" class="banner toast info">Loading frontend config...</div>
-        <div class="auth-actions">
+        <div class="auth-actions flex flex-wrap items-center gap-3">
           <button id="loginBtn" class="btn primary" type="button">Sign In with Google</button>
           <button id="logoutBtn" class="btn ghost" type="button">Sign Out</button>
           <span id="authMeta" class="small"></span>
@@ -44,7 +57,7 @@
           <div id="identityValue" class="mono small"></div>
         </details>
 
-        <form id="startForm" class="stack">
+        <form id="startForm" class="stack grid gap-4">
           <label id="userIdRow">
             User ID (manual only when auth is off)
             <input id="userId" type="text" required value="alan" />
@@ -82,12 +95,12 @@
               placeholder="Optional custom topics, comma-separated"
             />
           </fieldset>
-          <button id="startSessionBtn" class="btn primary" type="submit">Start Session</button>
+          <button id="startSessionBtn" class="btn primary w-fit" type="submit">Start Session</button>
         </form>
       </section>
 
-      <section id="planExamPanel" class="panel exam-panel reveal is-hidden" aria-hidden="true">
-        <h2>Exam Session</h2>
+      <section id="planExamPanel" class="panel exam-panel reveal is-hidden rounded-3xl p-5 md:p-6" aria-hidden="true">
+        <h2 class="text-xl font-semibold">Exam Session</h2>
         <div id="examLockHint" class="banner info exam-lock-hint" hidden></div>
         <div id="planMeta" class="mono small">No session started yet.</div>
         <div id="examContainer" class="exam-list"></div>
@@ -96,8 +109,8 @@
         </button>
       </section>
 
-      <section id="coachingPanel" class="panel reveal is-hidden" aria-hidden="true">
-        <h2>Diagnosis + Coaching</h2>
+      <section id="coachingPanel" class="panel reveal is-hidden rounded-3xl p-5 md:p-6" aria-hidden="true">
+        <h2 class="text-xl font-semibold">Diagnosis + Coaching</h2>
         <div id="resultsPlaceholder" class="banner info">
           Submit your answers to generate your evaluation and coaching.
         </div>

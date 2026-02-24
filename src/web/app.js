@@ -26,6 +26,7 @@ const GOOGLE_USERNAME_RETRY_KEY = "condor_google_username_retry";
 const INTERACTIVE_LOGIN_PROMPT = "login";
 
 let msalLoadPromise = null;
+let bannerTimer = null;
 
 const el = {
   authBanner: document.getElementById("authBanner"),
@@ -190,13 +191,30 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function setBanner(kind, message) {
+function setBanner(kind, message, options = {}) {
+  const { persist = false, durationMs = null } = options;
+  if (bannerTimer) {
+    clearTimeout(bannerTimer);
+    bannerTimer = null;
+  }
   el.authBanner.classList.remove("is-hidden");
   el.authBanner.className = `banner toast ${kind}`;
   el.authBanner.textContent = message;
+
+  if (!persist) {
+    const fallbackMs = kind === "error" ? 7000 : kind === "warn" ? 5500 : 3800;
+    const ttl = Number.isFinite(durationMs) ? durationMs : fallbackMs;
+    bannerTimer = setTimeout(() => {
+      hideBanner();
+    }, ttl);
+  }
 }
 
 function hideBanner() {
+  if (bannerTimer) {
+    clearTimeout(bannerTimer);
+    bannerTimer = null;
+  }
   el.authBanner.classList.add("is-hidden");
   el.authBanner.textContent = "";
 }
