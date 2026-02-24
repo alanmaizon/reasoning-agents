@@ -36,7 +36,6 @@ const el = {
   sessionMode: document.getElementById("sessionMode"),
   focusTopicsBlock: document.getElementById("focusTopicsBlock"),
   focusTopicsCustom: document.getElementById("focusTopicsCustom"),
-  offlineMode: document.getElementById("offlineMode"),
   planExamPanel: document.getElementById("planExamPanel"),
   examLockHint: document.getElementById("examLockHint"),
   planMeta: document.getElementById("planMeta"),
@@ -870,7 +869,6 @@ async function startSession(event) {
       user_id: el.userId.value.trim(),
       mode: el.sessionMode.value || "adaptive",
       focus_topics: selectedFocusTopics(),
-      offline: Boolean(el.offlineMode.checked),
     };
     const result = await apiJson("/v1/session/start", payload);
 
@@ -914,7 +912,6 @@ async function submitSession() {
       user_id: el.userId.value.trim(),
       exam: state.exam,
       answers: { answers: state.answers },
-      offline: Boolean(el.offlineMode.checked),
     };
     const result = await apiJson("/v1/session/submit", payload);
     renderResults(result);
