@@ -423,9 +423,18 @@ function isDropdownQuestion(question) {
 }
 
 function lowercaseInlineContinuation(text) {
-  const clean = String(text || "");
+  const clean = String(text || "").trimStart();
   if (clean.length < 2) {
     return clean;
+  }
+  if (/^A\s+[a-z]/.test(clean)) {
+    return `a${clean.slice(1)}`;
+  }
+  if (/^An\s+[a-z]/.test(clean)) {
+    return `an${clean.slice(2)}`;
+  }
+  if (/^The\s+[a-z]/.test(clean)) {
+    return `the${clean.slice(3)}`;
   }
   const first = clean[0];
   const second = clean[1];
