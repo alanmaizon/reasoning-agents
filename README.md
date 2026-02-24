@@ -1,6 +1,14 @@
 # Condor Console — Readiness Coach
 
+[![Microsoft Agents League](https://img.shields.io/badge/Microsoft%20Agents%20League-Submission-0078D4?logo=github)](https://github.com/microsoft/agentsleague)
+[![Track: Reasoning Agents](https://img.shields.io/badge/Track-%F0%9F%A7%A0%20Reasoning%20Agents-f8c7e7)](https://github.com/microsoft/agentsleague/issues/38)
+[![CI and Deploy To Azure VM](https://github.com/alanmaizon/reasoning-agents/actions/workflows/deploy_vm.yml/badge.svg)](https://github.com/alanmaizon/reasoning-agents/actions/workflows/deploy_vm.yml)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 > **AZ-900 Certification Prep** • Multi-agent system powered by Microsoft Foundry
+> Challenge project for Microsoft Agents League (🧠 Reasoning Agents track), focused on reliable multi-agent reasoning for AZ-900 coaching.
 
 An Agents League "Reasoning Agents" submission that helps students prepare for the Microsoft AZ-900 exam by **diagnosing misconceptions** — not just scoring answers — using a planner–executor + critic/verifier + reflection loop, grounded with Microsoft Learn MCP.
 
