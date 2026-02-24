@@ -59,19 +59,25 @@ Example pattern:
 
 Click `Submit Answers`.
 
-Expected in `Diagnosis + Coaching`:
+Expected:
+- Submit button shows loading spinner/state while processing.
+- Exam panel is locked during submit.
+
+Expected in `Evaluation + Insights`:
 - `Evaluation Summary`:
   - Estimated score (`x/1000`)
   - Correct answers (`x/y`)
   - Accuracy (`%`)
   - Estimated result vs pass threshold (`700/1000`)
-- `Answer Review` for each question:
-  - Your answer
-  - Correct answer
-  - Why explanation
-- `Top Misconceptions`
-- `Lesson Points`
-- `Grounded Explanations` with Microsoft Learn citations
+- Per-topic/domain score cards (`correct/total` + `%`)
+
+Mode-specific result panels:
+- `Mock AZ-900 test`: evaluation-only view (summary + topic scores)
+- `Adaptive coaching`: collapsible sections:
+  - `Answer Review` (larger readability-focused cards)
+  - `Top Misconceptions`
+  - `Lesson Points`
+  - `Grounded Explanations` with Microsoft Learn citations
 
 ### 5. Optional: restart flow (15s)
 
@@ -108,6 +114,6 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/start \
 - Session setup with `Session Mode` selector
 - Accordion question list with status chips
 - Dropdown sentence-completion question
-- Evaluation Summary panel
-- Answer Review panel
+- Evaluation Summary panel with topic score cards
+- Adaptive mode collapsible insight sections
 - Grounded Explanations with citations

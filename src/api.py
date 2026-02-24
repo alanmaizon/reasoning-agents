@@ -123,6 +123,7 @@ class StartSessionResponse(BaseModel):
 
 class SubmitSessionRequest(BaseModel):
     user_id: str = Field(default="default", min_length=1, max_length=120)
+    mode: Literal["adaptive", "mock_test"] = "adaptive"
     exam: Exam
     answers: StudentAnswerSheet
     offline: bool = False
@@ -533,94 +534,106 @@ def submit_session(
     state = _state_store().load(effective_user_id)
     warnings: List[str] = []
 
-    runtime_offline, foundry_run = _resolve_runtime(req.offline)
-    allow_online = not runtime_offline
-    offline_used = runtime_offline
-
-    def run_diag_online() -> Diagnosis:
-        return run_misconception(
-            exam=req.exam,
-            answers=req.answers,
-            offline=False,
-            foundry_run=foundry_run,
-        )
-
-    def run_diag_offline() -> Diagnosis:
-        return run_misconception(
+    if req.mode == "mock_test":
+        # Mock-test submit is evaluation-only to keep scoring responsive.
+        diagnosis = run_misconception(
             exam=req.exam,
             answers=req.answers,
             offline=True,
             foundry_run=None,
         )
+        grounded: List[GroundedExplanation] = []
+        coaching = Coaching(lesson_points=[], micro_drills=[])
+        offline_used = True
+    else:
+        runtime_offline, foundry_run = _resolve_runtime(req.offline)
+        allow_online = not runtime_offline
+        offline_used = runtime_offline
 
-    diagnosis, used_offline_for_diag = _run_stage(
-        stage_name="Misconception",
-        allow_online=allow_online,
-        run_online=run_diag_online,
-        run_offline=run_diag_offline,
-        warnings=warnings,
-    )
-    offline_used = offline_used or used_offline_for_diag
-
-    wrong_ids = [r.id for r in diagnosis.results if not r.correct]
-    wrong_questions = [q for q in req.exam.questions if q.id in wrong_ids]
-
-    grounded: List[GroundedExplanation] = []
-    for question in wrong_questions:
-        diag_entry = next(
-            (r for r in diagnosis.results if r.id == question.id), None
-        )
-
-        def run_ground_online() -> GroundedExplanation:
-            return run_grounding_verifier(
-                question=question,
-                diagnosis_result=diag_entry,
+        def run_diag_online() -> Diagnosis:
+            return run_misconception(
+                exam=req.exam,
+                answers=req.answers,
                 offline=False,
                 foundry_run=foundry_run,
             )
 
-        def run_ground_offline() -> GroundedExplanation:
-            return run_grounding_verifier(
-                question=question,
-                diagnosis_result=diag_entry,
+        def run_diag_offline() -> Diagnosis:
+            return run_misconception(
+                exam=req.exam,
+                answers=req.answers,
                 offline=True,
                 foundry_run=None,
             )
 
-        grounded_item, used_offline_for_ground = _run_stage(
-            stage_name=f"Grounding Q{question.id}",
+        diagnosis, used_offline_for_diag = _run_stage(
+            stage_name="Misconception",
             allow_online=allow_online,
-            run_online=run_ground_online,
-            run_offline=run_ground_offline,
+            run_online=run_diag_online,
+            run_offline=run_diag_offline,
             warnings=warnings,
         )
-        offline_used = offline_used or used_offline_for_ground
-        grounded.append(grounded_item)
+        offline_used = offline_used or used_offline_for_diag
 
-    def run_coach_online() -> Coaching:
-        return run_coach(
-            diagnosis=diagnosis,
-            grounded=grounded,
-            offline=False,
-            foundry_run=foundry_run,
+        wrong_ids = [r.id for r in diagnosis.results if not r.correct]
+        wrong_questions = [q for q in req.exam.questions if q.id in wrong_ids]
+
+        grounded: List[GroundedExplanation] = []
+        for question in wrong_questions:
+            diag_entry = next(
+                (r for r in diagnosis.results if r.id == question.id), None
+            )
+
+            def run_ground_online() -> GroundedExplanation:
+                return run_grounding_verifier(
+                    question=question,
+                    diagnosis_result=diag_entry,
+                    offline=False,
+                    foundry_run=foundry_run,
+                )
+
+            def run_ground_offline() -> GroundedExplanation:
+                return run_grounding_verifier(
+                    question=question,
+                    diagnosis_result=diag_entry,
+                    offline=True,
+                    foundry_run=None,
+                )
+
+            grounded_item, used_offline_for_ground = _run_stage(
+                stage_name=f"Grounding Q{question.id}",
+                allow_online=allow_online,
+                run_online=run_ground_online,
+                run_offline=run_ground_offline,
+                warnings=warnings,
+            )
+            offline_used = offline_used or used_offline_for_ground
+            grounded.append(grounded_item)
+
+        def run_coach_online() -> Coaching:
+            return run_coach(
+                diagnosis=diagnosis,
+                grounded=grounded,
+                offline=False,
+                foundry_run=foundry_run,
+            )
+
+        def run_coach_offline() -> Coaching:
+            return run_coach(
+                diagnosis=diagnosis,
+                grounded=grounded,
+                offline=True,
+                foundry_run=None,
+            )
+
+        coaching, used_offline_for_coach = _run_stage(
+            stage_name="Coach",
+            allow_online=allow_online,
+            run_online=run_coach_online,
+            run_offline=run_coach_offline,
+            warnings=warnings,
         )
-
-    def run_coach_offline() -> Coaching:
-        return run_coach(
-            diagnosis=diagnosis,
-            grounded=grounded,
-            offline=True,
-            foundry_run=None,
-        )
-
-    coaching, used_offline_for_coach = _run_stage(
-        stage_name="Coach",
-        allow_online=allow_online,
-        run_online=run_coach_online,
-        run_offline=run_coach_offline,
-        warnings=warnings,
-    )
-    offline_used = offline_used or used_offline_for_coach
+        offline_used = offline_used or used_offline_for_coach
 
     domains_covered = list({q.domain for q in req.exam.questions})
     diagnosis_dump = diagnosis.model_dump()

@@ -11,6 +11,7 @@
 | **CoachAgent** | Generates remediation lessons + micro-drills | Diagnosis + GroundedExplanations | Coaching JSON |
 
 Mock mode (API `mode=mock_test`) uses a randomized bank-driven exam generator that serves 40-60 questions.
+Mock submit uses an evaluation-only fast path (diagnosis + scoring) and skips grounding/coaching generation.
 
 ## Data Flow
 
@@ -20,10 +21,13 @@ flowchart LR
     B --> C[ExaminerAgent]
     C --> D[Quiz Presentation or API Response]
     D --> E[MisconceptionAgent]
-    E --> F[GroundingVerifierAgent]
-    F --> G[CoachAgent]
-    G --> H[Summary + State Save]
-    H -.-> B
+    E --> F{Session mode}
+    F -->|adaptive| G[GroundingVerifierAgent]
+    G --> H[CoachAgent]
+    F -->|mock_test| I[Evaluation-only summary]
+    H --> J[Summary + State Save]
+    I --> J
+    J -.-> B
 ```
 
 ## Service Interface
@@ -35,7 +39,9 @@ Hosted mode uses `src/api.py` (FastAPI):
 - `GET /healthz` — health endpoint
 - `GET /v1/state/{user_id}` — fetch student state
 - `POST /v1/session/start` — generate plan + exam
-- `POST /v1/session/submit` — diagnose answers, ground explanations, produce coaching
+- `POST /v1/session/submit` — mode-aware submit:
+  - `adaptive`: diagnose answers, ground explanations, produce coaching
+  - `mock_test`: evaluation-only diagnosis/scoring fast path
 
 Authentication:
 - `/healthz` is always public.
@@ -69,7 +75,7 @@ Before each tool call, policy checks both allow-list membership and approval han
 When the runtime exposes MCP tool discovery, the agent uses discovered tool names
 to avoid assuming every tool is available.
 If MCP execution is unavailable in the active SDK/runtime, grounding falls back to
-an "Insufficient evidence" response with a placeholder Learn citation.
+a deterministic explanation with Microsoft Learn fallback citation coverage when available.
 
 ## Caching
 

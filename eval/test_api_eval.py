@@ -112,3 +112,37 @@ def test_start_mock_test_mode():
     assert len(payload["exam"]["questions"]) == q_count
     assert len({q["id"] for q in payload["exam"]["questions"]}) == q_count
     assert payload["warnings"] == ["Focus topics are ignored in mock_test mode."]
+
+
+def test_submit_mock_test_mode_evaluation_only():
+    client = TestClient(api.app)
+
+    start_response = client.post(
+        "/v1/session/start",
+        json={
+            "user_id": "api-mock-submit-user",
+            "mode": "mock_test",
+            "offline": False,
+        },
+    )
+    assert start_response.status_code == 200
+    start_payload = start_response.json()
+
+    answers = {q["id"]: 0 for q in start_payload["exam"]["questions"]}
+    submit_response = client.post(
+        "/v1/session/submit",
+        json={
+            "user_id": "api-mock-submit-user",
+            "mode": "mock_test",
+            "exam": start_payload["exam"],
+            "answers": {"answers": answers},
+            "offline": False,
+        },
+    )
+    assert submit_response.status_code == 200
+    payload = submit_response.json()
+    assert payload["offline_used"] is True
+    assert payload["grounded"] == []
+    assert payload["coaching"]["lesson_points"] == []
+    assert payload["coaching"]["micro_drills"] == []
+    assert len(payload["diagnosis"]["results"]) == len(start_payload["exam"]["questions"])

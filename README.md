@@ -12,6 +12,8 @@ An Agents League "Reasoning Agents" submission that helps students prepare for t
 - **Persistent state**: local JSON for CLI, Azure Blob-backed state for hosted API mode
 - **Offline mode**: Full stub outputs for testing without API calls
 - **Mock test mode**: Randomized 40-60 question exams sampled from a larger AZ-900 bank
+- **Mock submit fast path**: `mock_test` submit returns score-focused evaluation without grounding/coaching stages
+- **Adaptive insights UX**: Collapsible Answer Review, Misconceptions, Lesson Points, and Grounded Explanations
 - **Schema-validated**: All agent communication uses Pydantic-enforced JSON schemas
 - **Hosted API**: FastAPI endpoints for Azure App Service deployment
 
@@ -107,8 +109,12 @@ curl -sS -X POST http://127.0.0.1:8000/v1/session/submit \
   -d "$(jq -n \
       --arg user_id 'alice' \
       --argjson exam "$EXAM_JSON" \
-      '{user_id: $user_id, exam: $exam, answers: {answers: {}}, offline: true}')"
+      '{user_id: $user_id, mode: "adaptive", exam: $exam, answers: {answers: {}}, offline: true}')"
 ```
+
+Submit behavior by mode:
+- `adaptive`: full diagnosis + grounding + coaching pipeline
+- `mock_test`: evaluation-only scoring path for faster result turnaround
 
 ## Environment Variables
 

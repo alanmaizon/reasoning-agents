@@ -111,9 +111,9 @@
       </section>
 
       <section id="coachingPanel" class="panel reveal is-hidden rounded-3xl p-5 md:p-6" aria-hidden="true">
-        <h2 class="text-xl font-semibold">Diagnosis + Coaching</h2>
+        <h2 class="text-xl font-semibold">Evaluation + Insights</h2>
         <div id="resultsPlaceholder" class="banner info">
-          Submit your answers to generate your evaluation and coaching.
+          Submit your answers to generate your evaluation.
         </div>
         <article id="evaluationSection" class="is-hidden">
           <h3>Evaluation Summary</h3>
@@ -121,24 +121,24 @@
             <p class="small">Submit your quiz to calculate your estimated AZ-900 score.</p>
           </div>
         </article>
-        <article id="answerReviewSection" class="is-hidden">
-          <h3>Answer Review</h3>
+        <details id="answerReviewSection" class="is-hidden result-accordion" open>
+          <summary>Answer Review</summary>
           <div id="answerReviewList" class="review-list"></div>
-        </article>
+        </details>
         <div id="coachingGrid" class="grid-two is-hidden">
-          <article>
-            <h3>Top Misconceptions</h3>
+          <details class="result-accordion compact" open>
+            <summary>Top Misconceptions</summary>
             <ul id="misconceptionList" class="result-list"></ul>
-          </article>
-          <article>
-            <h3>Lesson Points</h3>
+          </details>
+          <details class="result-accordion compact" open>
+            <summary>Lesson Points</summary>
             <ul id="lessonList" class="result-list"></ul>
-          </article>
+          </details>
         </div>
-        <article id="groundedSection" class="is-hidden">
-          <h3>Grounded Explanations</h3>
+        <details id="groundedSection" class="is-hidden result-accordion" open>
+          <summary>Grounded Explanations</summary>
           <div id="groundedList" class="grounded-list"></div>
-        </article>
+        </details>
       </section>
 
       <div

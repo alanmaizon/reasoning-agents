@@ -445,12 +445,35 @@ function setCoachingPanelVisible(visible) {
   el.coachingPanel.setAttribute("aria-hidden", visible ? "false" : "true");
 }
 
-function setResultsVisibility(visible) {
-  el.resultsPlaceholder.classList.toggle("is-hidden", visible);
-  el.evaluationSection.classList.toggle("is-hidden", !visible);
-  el.answerReviewSection.classList.toggle("is-hidden", !visible);
-  el.coachingGrid.classList.toggle("is-hidden", !visible);
-  el.groundedSection.classList.toggle("is-hidden", !visible);
+function setResultsVisibility(visible, options = {}) {
+  if (!visible) {
+    el.resultsPlaceholder.classList.remove("is-hidden");
+    el.evaluationSection.classList.add("is-hidden");
+    el.answerReviewSection.classList.add("is-hidden");
+    el.coachingGrid.classList.add("is-hidden");
+    el.groundedSection.classList.add("is-hidden");
+    return;
+  }
+
+  const showEvaluation = options.showEvaluation ?? true;
+  const showAnswerReview = options.showAnswerReview ?? true;
+  const showCoachingGrid = options.showCoachingGrid ?? true;
+  const showGrounded = options.showGrounded ?? true;
+
+  const anyVisible =
+    showEvaluation || showAnswerReview || showCoachingGrid || showGrounded;
+  el.resultsPlaceholder.classList.toggle("is-hidden", anyVisible);
+  el.evaluationSection.classList.toggle("is-hidden", !showEvaluation);
+  el.answerReviewSection.classList.toggle("is-hidden", !showAnswerReview);
+  el.coachingGrid.classList.toggle("is-hidden", !showCoachingGrid);
+  el.groundedSection.classList.toggle("is-hidden", !showGrounded);
+
+  if (showAnswerReview && el.answerReviewSection instanceof HTMLDetailsElement) {
+    el.answerReviewSection.open = true;
+  }
+  if (showGrounded && el.groundedSection instanceof HTMLDetailsElement) {
+    el.groundedSection.open = true;
+  }
 }
 
 function totalQuestionCount() {
@@ -858,9 +881,41 @@ function renderEvaluationSummary(diagnosis) {
   const scaledScore = Math.round(accuracy * AZ900_SCORE_MAX);
   const passed = scaledScore >= AZ900_PASS_SCORE;
   const resultText = passed ? "Pass estimate" : "Below pass estimate";
+  const byDomain = new Map();
+
+  for (const question of questions) {
+    const domain = question.domain || "Uncategorized";
+    const isCorrect =
+      typeof diagnosisById.get(question.id)?.correct === "boolean"
+        ? Boolean(diagnosisById.get(question.id).correct)
+        : state.answers[question.id] === question.answer_key;
+    const current = byDomain.get(domain) || { total: 0, correct: 0 };
+    current.total += 1;
+    if (isCorrect) {
+      current.correct += 1;
+    }
+    byDomain.set(domain, current);
+  }
+
+  const domainRows = Array.from(byDomain.entries())
+    .sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0]))
+    .map(([domain, stats]) => {
+      const pct = stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0;
+      return `
+        <article class="topic-score-card">
+          <h4>${escapeHtml(domain)}</h4>
+          <div class="topic-score-values">
+            <span>${stats.correct}/${stats.total} correct</span>
+            <span>${pct}%</span>
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
   const modeNote =
     state.sessionMode === "mock_test"
-      ? "Mock mode uses a randomized 40-60 question range. This scaled score is an estimate."
+      ? "Mock mode shows score-only evaluation for faster results."
       : "Adaptive mode is coaching-focused. This scaled score is an estimate.";
 
   el.evaluationSummary.innerHTML = `
@@ -886,6 +941,9 @@ function renderEvaluationSummary(diagnosis) {
       AZ-900 pass target: ${AZ900_PASS_SCORE}/${AZ900_SCORE_MAX}. Fundamentals exam time is about ${AZ900_EXAM_TIME_MINUTES} minutes and production exams are typically 40-60 questions.
     </p>
     <p class="small">${modeNote}${unansweredCount > 0 ? ` Unanswered: ${unansweredCount}.` : ""}</p>
+    <div class="topic-score-grid">
+      ${domainRows || "<p class='small'>No topic breakdown available.</p>"}
+    </div>
   `;
 }
 
@@ -1197,27 +1255,43 @@ async function submitSession() {
     return;
   }
   state.submitting = true;
-  setExamAccessibility(true, "Submitting answers. Plan + Exam is locked.");
+  hideBanner();
+  setExamAccessibility(true);
   try {
     await ensureToken();
     const payload = {
       user_id: el.userId.value.trim(),
+      mode: state.sessionMode,
       exam: state.exam,
       answers: { answers: state.answers },
     };
     const result = await apiJson("/v1/session/submit", payload);
-    renderResults(result);
     renderEvaluationSummary(result?.diagnosis);
-    renderAnswerReview(result?.diagnosis);
-    setCoachingPanelVisible(true);
-    setResultsVisibility(true);
+    if (state.sessionMode === "mock_test") {
+      setCoachingPanelVisible(true);
+      setResultsVisibility(true, {
+        showEvaluation: true,
+        showAnswerReview: false,
+        showCoachingGrid: false,
+        showGrounded: false,
+      });
+    } else {
+      renderResults(result);
+      renderAnswerReview(result?.diagnosis);
+      setCoachingPanelVisible(true);
+      setResultsVisibility(true, {
+        showEvaluation: true,
+        showAnswerReview: true,
+        showCoachingGrid: true,
+        showGrounded: true,
+      });
+    }
     state.examSubmitted = true;
     state.submitting = false;
     state.sessionActive = false;
     setExamAccessibility(true, "Answers submitted. Start a new session to edit or retake.");
     setPlanExamVisible(false);
     refreshStartSessionControls();
-    setBanner("info", "Submission completed.");
   } catch (err) {
     state.submitting = false;
     setExamAccessibility(false);
