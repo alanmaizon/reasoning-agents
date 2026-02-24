@@ -173,17 +173,36 @@ select {
 
 .btn {
   border: 0;
-  border-radius: 12px;
+  border-radius: 999px;
   padding: 0.62rem 0.92rem;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
   transition: transform 120ms ease, filter 120ms ease;
+  position: relative;
+  overflow: hidden;
 }
 
 .btn:hover {
   transform: translateY(-1px);
   filter: brightness(1.03);
+}
+
+.btn::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(140% 120% at 0% 0%, rgba(255, 255, 255, 0.28), transparent 55%),
+    repeating-linear-gradient(
+      120deg,
+      rgba(255, 255, 255, 0.07) 0px,
+      rgba(255, 255, 255, 0.07) 2px,
+      transparent 2px,
+      transparent 8px
+    );
+  opacity: 0.55;
 }
 
 .btn:disabled {
@@ -257,6 +276,60 @@ select {
 .banner.error {
   background: #fff2f4;
   border-color: #f1a3b4;
+}
+
+.banner.toast {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  width: min(430px, calc(100vw - 2rem));
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.12) 100%
+    );
+  box-shadow:
+    0 12px 36px rgba(10, 30, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(14px) saturate(135%);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
+  z-index: 70;
+  animation: toastSlideIn 220ms ease;
+}
+
+.banner.toast.info {
+  color: #143f55;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(209, 242, 250, 0.42) 0%,
+      rgba(228, 247, 252, 0.24) 100%
+    );
+}
+
+.banner.toast.warn {
+  color: #5f3700;
+  border-color: rgba(240, 200, 157, 0.48);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 238, 212, 0.46) 0%,
+      rgba(255, 246, 236, 0.24) 100%
+    );
+}
+
+.banner.toast.error {
+  color: #5c1025;
+  border-color: rgba(241, 163, 180, 0.5);
+  background:
+    linear-gradient(
+      145deg,
+      rgba(255, 224, 232, 0.46) 0%,
+      rgba(255, 242, 244, 0.24) 100%
+    );
 }
 
 .mono {
@@ -586,6 +659,17 @@ select {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes toastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 

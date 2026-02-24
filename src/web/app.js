@@ -192,7 +192,7 @@ function escapeHtml(value) {
 
 function setBanner(kind, message) {
   el.authBanner.classList.remove("is-hidden");
-  el.authBanner.className = `banner ${kind}`;
+  el.authBanner.className = `banner toast ${kind}`;
   el.authBanner.textContent = message;
 }
 
