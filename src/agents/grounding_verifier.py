@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
+from time import perf_counter
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..models.schemas import (
@@ -15,6 +17,8 @@ from ..models.schemas import (
 from ..orchestration.cache import cache_get, cache_put
 from ..orchestration.tool_policy import approval_handler, is_tool_allowed
 from ..util.jsonio import extract_json
+
+_grounding_logger = logging.getLogger("mdt.grounding")
 
 
 GROUNDING_SYSTEM_PROMPT = """\
@@ -364,14 +368,45 @@ def _is_low_signal_explanation(text: str) -> bool:
     return clean.lower().startswith("insufficient evidence")
 
 
+def _short_error(exc: Exception, max_len: int = 240) -> str:
+    text = " ".join(str(exc).split())
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3].rstrip()}..."
+
+
 def run_grounding_verifier(
     question: Question,
     diagnosis_result: Optional[DiagnosisResult] = None,
     offline: bool = False,
     foundry_run: Optional[Any] = None,
 ) -> GroundedExplanation:
+    started = perf_counter()
+    _grounding_logger.info(
+        "grounding_started",
+        extra={
+            "event": "grounding_started",
+            "question_id": question.id,
+            "domain": question.domain,
+            "offline_requested": offline,
+            "has_foundry_runner": foundry_run is not None,
+        },
+    )
     if offline or foundry_run is None:
-        return _offline_ground(question, diagnosis_result)
+        result = _offline_ground(question, diagnosis_result)
+        _grounding_logger.info(
+            "grounding_completed",
+            extra={
+                "event": "grounding_completed",
+                "question_id": question.id,
+                "domain": question.domain,
+                "mode": "offline_stub",
+                "evidence_count": 0,
+                "citations_count": len(result.citations),
+                "duration_ms": round((perf_counter() - started) * 1000, 2),
+            },
+        )
+        return result
 
     evidence: List[Citation] = []
 
@@ -379,11 +414,25 @@ def run_grounding_verifier(
     if _supports_tool_runner(foundry_run):
         queries = _build_search_queries(question, diagnosis_result)
         discovered_tools = _discover_tool_names(foundry_run)
+        _grounding_logger.info(
+            "grounding_mcp_discovery",
+            extra={
+                "event": "grounding_mcp_discovery",
+                "question_id": question.id,
+                "domain": question.domain,
+                "discovery_available": discovered_tools is not None,
+                "discovered_tools_count": (
+                    len(discovered_tools) if discovered_tools is not None else None
+                ),
+                "query_count": len(queries),
+            },
+        )
 
         docs_hits: List[Dict[str, str]] = []
         code_sample_hits: List[Dict[str, str]] = []
 
-        for query in queries:
+        for idx, query in enumerate(queries, start=1):
+            search_started = perf_counter()
             docs_payload = _run_search_tool(
                 foundry_run=foundry_run,
                 tool_name="microsoft_docs_search",
@@ -391,12 +440,28 @@ def run_grounding_verifier(
                 top_k=3,
                 discovered_tools=discovered_tools,
             )
+            before = len(docs_hits)
             if docs_payload:
                 docs_hits = _merge_hits(docs_hits, _extract_search_hits(docs_payload))
+            _grounding_logger.info(
+                "grounding_mcp_search",
+                extra={
+                    "event": "grounding_mcp_search",
+                    "question_id": question.id,
+                    "tool_name": "microsoft_docs_search",
+                    "query_index": idx,
+                    "query_length": len(query),
+                    "payload_received": bool(docs_payload),
+                    "hits_added": len(docs_hits) - before,
+                    "hits_total": len(docs_hits),
+                    "latency_ms": round((perf_counter() - search_started) * 1000, 2),
+                },
+            )
             if len(docs_hits) >= 3:
                 break
 
-        for query in queries[:2]:
+        for idx, query in enumerate(queries[:2], start=1):
+            search_started = perf_counter()
             code_payload = _run_search_tool(
                 foundry_run=foundry_run,
                 tool_name="microsoft_code_sample_search",
@@ -404,19 +469,46 @@ def run_grounding_verifier(
                 top_k=2,
                 discovered_tools=discovered_tools,
             )
+            before = len(code_sample_hits)
             if code_payload:
                 code_sample_hits = _merge_hits(
                     code_sample_hits,
                     _extract_search_hits(code_payload),
                 )
+            _grounding_logger.info(
+                "grounding_mcp_search",
+                extra={
+                    "event": "grounding_mcp_search",
+                    "question_id": question.id,
+                    "tool_name": "microsoft_code_sample_search",
+                    "query_index": idx,
+                    "query_length": len(query),
+                    "payload_received": bool(code_payload),
+                    "hits_added": len(code_sample_hits) - before,
+                    "hits_total": len(code_sample_hits),
+                    "latency_ms": round((perf_counter() - search_started) * 1000, 2),
+                },
+            )
             if len(code_sample_hits) >= 2:
                 break
 
         hits = _merge_hits(docs_hits, code_sample_hits)[:3]
+        _grounding_logger.info(
+            "grounding_mcp_hits_selected",
+            extra={
+                "event": "grounding_mcp_hits_selected",
+                "question_id": question.id,
+                "docs_hits": len(docs_hits),
+                "code_sample_hits": len(code_sample_hits),
+                "selected_hits": len(hits),
+            },
+        )
 
         for hit in hits:
             url = hit["url"]
             cached = cache_get(url)
+            fetch_started = perf_counter()
+            fetch_payload_received = False
             if cached:
                 content = cached
             else:
@@ -425,9 +517,22 @@ def run_grounding_verifier(
                     url=url,
                     discovered_tools=discovered_tools,
                 )
+                fetch_payload_received = bool(fetch_payload)
                 content = _extract_fetched_content(fetch_payload or {})
                 if content:
                     cache_put(url, content)
+            _grounding_logger.info(
+                "grounding_mcp_fetch",
+                extra={
+                    "event": "grounding_mcp_fetch",
+                    "question_id": question.id,
+                    "url": url,
+                    "cache_hit": bool(cached),
+                    "fetch_payload_received": fetch_payload_received,
+                    "content_length": len(content),
+                    "latency_ms": round((perf_counter() - fetch_started) * 1000, 2),
+                },
+            )
 
             snippet = _to_snippet(content) if content else hit["snippet"]
             if not snippet:
@@ -439,6 +544,25 @@ def run_grounding_verifier(
                     snippet=_trim_words(snippet, 20),
                 )
             )
+    else:
+        _grounding_logger.warning(
+            "grounding_mcp_unavailable",
+            extra={
+                "event": "grounding_mcp_unavailable",
+                "question_id": question.id,
+                "domain": question.domain,
+                "reason": "foundry_runner_without_tool_capability",
+            },
+        )
+
+    _grounding_logger.info(
+        "grounding_evidence_ready",
+        extra={
+            "event": "grounding_evidence_ready",
+            "question_id": question.id,
+            "evidence_count": len(evidence),
+        },
+    )
 
     diag_json = diagnosis_result.model_dump() if diagnosis_result else {}
     evidence_json = [c.model_dump() for c in evidence]
@@ -450,20 +574,70 @@ def run_grounding_verifier(
         "If evidence is empty, return the insufficient-evidence fallback."
     )
     try:
+        model_started = perf_counter()
         raw = foundry_run(
             "GroundingVerifierAgent", GROUNDING_SYSTEM_PROMPT, prompt
         )
         data = extract_json(raw)
         result = GroundedExplanation.model_validate(data)
-    except Exception:
-        return _fallback_ground(question, evidence, diagnosis_result)
+        _grounding_logger.info(
+            "grounding_model_output_valid",
+            extra={
+                "event": "grounding_model_output_valid",
+                "question_id": question.id,
+                "citations_count": len(result.citations),
+                "latency_ms": round((perf_counter() - model_started) * 1000, 2),
+            },
+        )
+    except Exception as exc:
+        fallback = _fallback_ground(question, evidence, diagnosis_result)
+        _grounding_logger.warning(
+            "grounding_fallback_used",
+            extra={
+                "event": "grounding_fallback_used",
+                "question_id": question.id,
+                "domain": question.domain,
+                "fallback_reason": "model_exception_or_invalid_json",
+                "error": _short_error(exc),
+                "evidence_count": len(evidence),
+                "citations_count": len(fallback.citations),
+                "duration_ms": round((perf_counter() - started) * 1000, 2),
+            },
+        )
+        return fallback
 
     if _is_low_signal_explanation(result.explanation):
-        return _fallback_ground(question, result.citations or evidence, diagnosis_result)
+        fallback = _fallback_ground(question, result.citations or evidence, diagnosis_result)
+        _grounding_logger.warning(
+            "grounding_fallback_used",
+            extra={
+                "event": "grounding_fallback_used",
+                "question_id": question.id,
+                "domain": question.domain,
+                "fallback_reason": "low_signal_explanation",
+                "explanation_length": len(result.explanation or ""),
+                "evidence_count": len(evidence),
+                "citations_count": len(fallback.citations),
+                "duration_ms": round((perf_counter() - started) * 1000, 2),
+            },
+        )
+        return fallback
 
     # Cache any fetched URLs
     for c in result.citations:
         if not cache_get(c.url):
             cache_put(c.url, c.snippet)
 
+    _grounding_logger.info(
+        "grounding_completed",
+        extra={
+            "event": "grounding_completed",
+            "question_id": question.id,
+            "domain": question.domain,
+            "mode": "online",
+            "evidence_count": len(evidence),
+            "citations_count": len(result.citations),
+            "duration_ms": round((perf_counter() - started) * 1000, 2),
+        },
+    )
     return result

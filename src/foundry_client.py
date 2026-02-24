@@ -6,13 +6,23 @@ Supports both online (Foundry endpoint) and offline (stub) modes.
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass
+from time import perf_counter
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
 
 load_dotenv()
+_mcp_logger = logging.getLogger("mdt.mcp")
+
+
+def _short_error(exc: Exception, max_len: int = 240) -> str:
+    text = " ".join(str(exc).split())
+    if len(text) <= max_len:
+        return text
+    return f"{text[: max_len - 3].rstrip()}..."
 
 
 def _get_env(name: str, required: bool = True) -> Optional[str]:
@@ -247,12 +257,46 @@ class FoundryRunner:
         # We intentionally probe a small set of candidate SDK surfaces and fail
         # clearly when not available so callers can fall back safely.
         attempts = []
+        _mcp_logger.info(
+            "mcp_tool_call_start",
+            extra={
+                "event": "mcp_tool_call_start",
+                "tool_name": tool_name,
+                "connection_name_configured": bool(self.mcp_connection_name),
+                "argument_keys": (
+                    sorted(arguments.keys()) if isinstance(arguments, dict) else []
+                ),
+            },
+        )
 
-        def _invoke(callable_obj, kwargs: Dict[str, Any]):
+        def _invoke(surface: str, callable_obj, kwargs: Dict[str, Any]):
+            started = perf_counter()
             try:
-                return callable_obj(**kwargs)
+                result = callable_obj(**kwargs)
+                _mcp_logger.info(
+                    "mcp_tool_call_success",
+                    extra={
+                        "event": "mcp_tool_call_success",
+                        "tool_name": tool_name,
+                        "sdk_surface": surface,
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                        "connection_name_used": "connection_name" in kwargs,
+                    },
+                )
+                return result
             except Exception as exc:
                 attempts.append(f"{callable_obj}: {exc}")
+                _mcp_logger.warning(
+                    "mcp_tool_call_failure",
+                    extra={
+                        "event": "mcp_tool_call_failure",
+                        "tool_name": tool_name,
+                        "sdk_surface": surface,
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                        "connection_name_used": "connection_name" in kwargs,
+                        "error": _short_error(exc),
+                    },
+                )
                 return None
 
         # Candidate 1: client.mcp.call_tool(...)
@@ -261,6 +305,7 @@ class FoundryRunner:
             call_tool = getattr(mcp, "call_tool", None)
             if callable(call_tool):
                 result = _invoke(
+                    "mcp",
                     call_tool,
                     {
                         "tool_name": tool_name,
@@ -276,6 +321,7 @@ class FoundryRunner:
             invoke = getattr(tools, "invoke", None)
             if callable(invoke):
                 result = _invoke(
+                    "tools",
                     invoke,
                     {
                         "tool_name": tool_name,
@@ -296,7 +342,7 @@ class FoundryRunner:
                 }
                 if self.mcp_connection_name:
                     kwargs["connection_name"] = self.mcp_connection_name
-                result = _invoke(invoke_tool, kwargs)
+                result = _invoke("connections", invoke_tool, kwargs)
                 if result is not None:
                     return _to_jsonable(result)
 
@@ -305,6 +351,15 @@ class FoundryRunner:
         )
         if attempts:
             reason = f"{reason} Attempts: {' | '.join(attempts[:3])}"
+        _mcp_logger.error(
+            "mcp_tool_call_unavailable",
+            extra={
+                "event": "mcp_tool_call_unavailable",
+                "tool_name": tool_name,
+                "attempts_count": len(attempts),
+                "reason": reason,
+            },
+        )
         raise RuntimeError(reason)
 
     def list_mcp_tools(self) -> List[str]:
@@ -315,12 +370,40 @@ class FoundryRunner:
             )
 
         attempts = []
+        _mcp_logger.info(
+            "mcp_list_tools_start",
+            extra={
+                "event": "mcp_list_tools_start",
+                "connection_name_configured": bool(self.mcp_connection_name),
+            },
+        )
 
-        def _invoke(callable_obj, kwargs: Dict[str, Any]):
+        def _invoke(surface: str, callable_obj, kwargs: Dict[str, Any]):
+            started = perf_counter()
             try:
-                return callable_obj(**kwargs)
+                result = callable_obj(**kwargs)
+                _mcp_logger.info(
+                    "mcp_list_tools_call_success",
+                    extra={
+                        "event": "mcp_list_tools_call_success",
+                        "sdk_surface": surface,
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                        "connection_name_used": "connection_name" in kwargs,
+                    },
+                )
+                return result
             except Exception as exc:
                 attempts.append(f"{callable_obj}: {exc}")
+                _mcp_logger.warning(
+                    "mcp_list_tools_call_failure",
+                    extra={
+                        "event": "mcp_list_tools_call_failure",
+                        "sdk_surface": surface,
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                        "connection_name_used": "connection_name" in kwargs,
+                        "error": _short_error(exc),
+                    },
+                )
                 return None
 
         # Candidate 1: client.mcp.list_tools(...)
@@ -328,10 +411,19 @@ class FoundryRunner:
         if mcp is not None:
             list_tools = getattr(mcp, "list_tools", None)
             if callable(list_tools):
-                result = _invoke(list_tools, {})
+                kwargs: Dict[str, Any] = {}
+                result = _invoke("mcp", list_tools, kwargs)
                 if result is not None:
                     names = _extract_tool_names(_to_jsonable(result))
                     if names:
+                        _mcp_logger.info(
+                            "mcp_list_tools_success",
+                            extra={
+                                "event": "mcp_list_tools_success",
+                                "sdk_surface": "mcp",
+                                "tools_count": len(names),
+                            },
+                        )
                         return names
 
         # Candidate 2: client.tools.list(...)
@@ -339,10 +431,19 @@ class FoundryRunner:
         if tools is not None:
             list_tools = getattr(tools, "list", None)
             if callable(list_tools):
-                result = _invoke(list_tools, {})
+                kwargs = {}
+                result = _invoke("tools", list_tools, kwargs)
                 if result is not None:
                     names = _extract_tool_names(_to_jsonable(result))
                     if names:
+                        _mcp_logger.info(
+                            "mcp_list_tools_success",
+                            extra={
+                                "event": "mcp_list_tools_success",
+                                "sdk_surface": "tools",
+                                "tools_count": len(names),
+                            },
+                        )
                         return names
 
         # Candidate 3: client.connections.list_tools(...)
@@ -353,15 +454,32 @@ class FoundryRunner:
                 kwargs: Dict[str, Any] = {}
                 if self.mcp_connection_name:
                     kwargs["connection_name"] = self.mcp_connection_name
-                result = _invoke(list_tools, kwargs)
+                result = _invoke("connections", list_tools, kwargs)
                 if result is not None:
                     names = _extract_tool_names(_to_jsonable(result))
                     if names:
+                        _mcp_logger.info(
+                            "mcp_list_tools_success",
+                            extra={
+                                "event": "mcp_list_tools_success",
+                                "sdk_surface": "connections",
+                                "tools_count": len(names),
+                                "connection_name_used": "connection_name" in kwargs,
+                            },
+                        )
                         return names
 
         reason = "MCP tool discovery is not available from this Foundry client runtime."
         if attempts:
             reason = f"{reason} Attempts: {' | '.join(attempts[:3])}"
+        _mcp_logger.error(
+            "mcp_list_tools_unavailable",
+            extra={
+                "event": "mcp_list_tools_unavailable",
+                "attempts_count": len(attempts),
+                "reason": reason,
+            },
+        )
         raise RuntimeError(reason)
 
 

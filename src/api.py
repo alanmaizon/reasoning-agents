@@ -35,6 +35,7 @@ from .models.schemas import (
     StudentAnswerSheet,
 )
 from .models.state import StudentState
+from .observability.context import reset_request_id, set_request_id
 from .observability.logging_setup import configure_logging
 from .orchestration.state_store import StateStore
 from .security.entra_auth import (
@@ -67,6 +68,7 @@ app.mount("/web", StaticFiles(directory=_WEB_DIR), name="web")
 T = TypeVar("T")
 _bearer_scheme = HTTPBearer(auto_error=False)
 _http_logger = logging.getLogger("mdt.http")
+_stage_logger = logging.getLogger("mdt.stage")
 
 
 class _SlidingWindowRateLimiter:
@@ -333,17 +335,49 @@ def _run_stage(
     run_offline: Callable[[], T],
     warnings: List[str],
 ) -> Tuple[T, bool]:
+    stage_started = perf_counter()
     if not allow_online:
-        return run_offline(), True
+        result = run_offline()
+        _stage_logger.info(
+            "stage_completed",
+            extra={
+                "event": "stage_completed",
+                "stage_name": stage_name,
+                "mode": "offline_forced",
+                "duration_ms": round((perf_counter() - stage_started) * 1000, 2),
+            },
+        )
+        return result, True
 
     try:
-        return run_online(), False
+        result = run_online()
+        _stage_logger.info(
+            "stage_completed",
+            extra={
+                "event": "stage_completed",
+                "stage_name": stage_name,
+                "mode": "online",
+                "duration_ms": round((perf_counter() - stage_started) * 1000, 2),
+            },
+        )
+        return result, False
     except Exception as exc:
         short_reason = _summarize_online_error(exc)
         warnings.append(
             f"{stage_name} failed online; used offline fallback. ({short_reason})"
         )
-        return run_offline(), True
+        result = run_offline()
+        _stage_logger.warning(
+            "stage_fallback_used",
+            extra={
+                "event": "stage_fallback_used",
+                "stage_name": stage_name,
+                "mode": "online_to_offline",
+                "reason": short_reason,
+                "duration_ms": round((perf_counter() - stage_started) * 1000, 2),
+            },
+        )
+        return result, True
 
 
 @app.get("/healthz")
@@ -356,6 +390,7 @@ async def _request_logging(
     request: Request, call_next: Callable[..., Any]
 ):
     request_id = request.headers.get("x-request-id") or uuid4().hex
+    request_id_token = set_request_id(request_id)
     started = perf_counter()
     client_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
@@ -378,6 +413,8 @@ async def _request_logging(
             },
         )
         raise
+    finally:
+        reset_request_id(request_id_token)
 
     duration_ms = round((perf_counter() - started) * 1000, 2)
     response.headers["x-request-id"] = request_id
