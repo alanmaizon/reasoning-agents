@@ -134,12 +134,14 @@
           </button>
         </div>
         <div class="exam-nav-move">
-          <button id="navMoveUpBtn" class="btn ghost move-btn" type="button" aria-label="Move popup up">↑</button>
-          <div class="exam-nav-move-mid">
-            <button id="navMoveLeftBtn" class="btn ghost move-btn" type="button" aria-label="Move popup left">←</button>
-            <button id="navMoveRightBtn" class="btn ghost move-btn" type="button" aria-label="Move popup right">→</button>
+          <p class="small exam-nav-move-label">Move panel</p>
+          <div class="exam-nav-dpad" role="group" aria-label="Move popup">
+            <button id="navMoveUpBtn" class="move-btn move-up" type="button" aria-label="Move popup up">▲</button>
+            <button id="navMoveLeftBtn" class="move-btn move-left" type="button" aria-label="Move popup left">◀</button>
+            <span class="move-center" aria-hidden="true">⠿</span>
+            <button id="navMoveRightBtn" class="move-btn move-right" type="button" aria-label="Move popup right">▶</button>
+            <button id="navMoveDownBtn" class="move-btn move-down" type="button" aria-label="Move popup down">▼</button>
           </div>
-          <button id="navMoveDownBtn" class="btn ghost move-btn" type="button" aria-label="Move popup down">↓</button>
         </div>
       </aside>
 
