@@ -1,4 +1,4 @@
-# Architecture — Condor (AZ-900 Reasoning Tutor)
+# Architecture — Condor Console (Readiness Coach)
 
 ## Agents
 

@@ -1,4 +1,4 @@
-# Demo Script - Condor (AZ-900 Reasoning Tutor)
+# Demo Script - Condor Console (Readiness Coach)
 
 Estimated time: 2-3 minutes.
 
@@ -22,17 +22,17 @@ Open `http://127.0.0.1:8000/`.
 
 ### 1. Session setup (15s)
 
-In the Condor UI:
-1. Enter a `User ID`.
-2. Choose `Session Mode`:
+In the Condor Console UI:
+1. Choose `Session Mode`:
    - `Adaptive coaching` (typically 8-12 questions)
    - `Mock AZ-900 test` (randomized 40-60 questions)
-3. (Adaptive only) Enter optional `Focus Topics`.
-4. Click `Start Session`.
+2. (Adaptive only) Enter optional `Focus Topics`.
+3. Click `Start Session`.
 
 Expected:
 - Plan metadata appears (`Mode`, `domains`, `question count`).
 - Quiz cards render in accordion format.
+- While an exam is active, `Start Session` becomes `Restart Session` and asks for confirmation before reset.
 
 ### 2. Quiz interaction (30-45s)
 
@@ -73,13 +73,13 @@ Expected in `Diagnosis + Coaching`:
 - `Lesson Points`
 - `Grounded Explanations` with Microsoft Learn citations
 
-### 5. Optional: offline behavior (15s)
+### 5. Optional: restart flow (15s)
 
-Enable `Use offline mode` and start another session.
+Click `Restart Session` during an active exam.
 
 Expected:
-- Session works without live model calls.
-- If online stages fail, API warnings indicate fallback.
+- Confirmation dialog appears before reset.
+- Button shows loading state while the new session is generated.
 
 ## API sanity checks (optional)
 

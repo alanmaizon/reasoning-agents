@@ -1,4 +1,4 @@
-# Condor — AZ-900 Reasoning Tutor
+# Condor Console — Readiness Coach
 
 > **AZ-900 Certification Prep** • Multi-agent system powered by Microsoft Foundry
 
