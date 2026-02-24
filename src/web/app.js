@@ -14,6 +14,7 @@ const state = {
   examSubmitted: false,
   sessionActive: false,
   canStartSession: false,
+  confirmResolver: null,
 };
 
 const MSAL_SOURCES = [
@@ -51,6 +52,9 @@ const el = {
   answerReviewSection: document.getElementById("answerReviewSection"),
   coachingGrid: document.getElementById("coachingGrid"),
   groundedSection: document.getElementById("groundedSection"),
+  confirmOverlay: document.getElementById("confirmOverlay"),
+  confirmCancelBtn: document.getElementById("confirmCancelBtn"),
+  confirmOkBtn: document.getElementById("confirmOkBtn"),
   evaluationSummary: document.getElementById("evaluationSummary"),
   answerReviewList: document.getElementById("answerReviewList"),
   misconceptionList: document.getElementById("misconceptionList"),
@@ -281,6 +285,29 @@ function setFormsEnabled(enabled) {
   if (!enabled) {
     el.submitBtn.disabled = true;
   }
+}
+
+function closeRestartConfirm(confirmed) {
+  if (!state.confirmResolver) {
+    return;
+  }
+  const resolve = state.confirmResolver;
+  state.confirmResolver = null;
+  el.confirmOverlay.classList.add("is-hidden");
+  document.body.classList.remove("modal-open");
+  resolve(Boolean(confirmed));
+}
+
+function confirmRestartSession() {
+  if (state.confirmResolver) {
+    return Promise.resolve(false);
+  }
+  return new Promise((resolve) => {
+    state.confirmResolver = resolve;
+    el.confirmOverlay.classList.remove("is-hidden");
+    document.body.classList.add("modal-open");
+    el.confirmCancelBtn.focus();
+  });
 }
 
 function refreshStartSessionControls() {
@@ -899,9 +926,7 @@ async function startSession(event) {
   event.preventDefault();
   const restarting = state.sessionActive;
   if (restarting) {
-    const confirmed = window.confirm(
-      "Restart this session? Current answers in the active exam will be reset."
-    );
+    const confirmed = await confirmRestartSession();
     if (!confirmed) {
       return;
     }
@@ -1035,6 +1060,22 @@ function bindEvents() {
     }
   });
   el.submitBtn.addEventListener("click", submitSession);
+  el.confirmCancelBtn.addEventListener("click", () => {
+    closeRestartConfirm(false);
+  });
+  el.confirmOkBtn.addEventListener("click", () => {
+    closeRestartConfirm(true);
+  });
+  el.confirmOverlay.addEventListener("click", (event) => {
+    if (event.target === el.confirmOverlay) {
+      closeRestartConfirm(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !el.confirmOverlay.classList.contains("is-hidden")) {
+      closeRestartConfirm(false);
+    }
+  });
   el.loginBtn.addEventListener("click", async () => {
     try {
       await handleLogin();
