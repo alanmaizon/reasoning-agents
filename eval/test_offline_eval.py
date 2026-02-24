@@ -482,8 +482,10 @@ class TestGroundingVerifierMcp:
             foundry_run=lambda *_: "not-json",
         )
 
-        assert "Insufficient evidence" in ge.explanation
-        assert ge.citations[0].url == "https://learn.microsoft.com/"
+        assert ge.explanation.startswith("Correct answer:")
+        assert ge.citations[0].url == (
+            "https://learn.microsoft.com/en-us/azure/security/fundamentals/shared-responsibility"
+        )
 
     def test_grounding_fallback_prefers_evidence_citation(self):
         q = Question(
@@ -524,7 +526,7 @@ class TestGroundingVerifierMcp:
             foundry_run=runner,
         )
 
-        assert "Insufficient evidence" in ge.explanation
+        assert ge.explanation.startswith("Correct answer:")
         assert (
             ge.citations[0].url
             == "https://learn.microsoft.com/en-us/azure/reliability/availability-zones-overview"

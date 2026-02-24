@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Callable, Optional
 
 from ..models.schemas import (
@@ -47,8 +48,37 @@ DOMAIN_TO_MISCONCEPTION = {
 }
 
 
+_CHOICE_PREFIX = re.compile(r"^[A-F]\)\s*")
+_LOW_SIGNAL_WHY_MARKERS = (
+    "indicates confusion",
+    "shows confusion",
+    "selected choice",
+    "correct is choice",
+    "correct answer is choice",
+)
+
+
 def _default_misconception_for_domain(domain: str) -> str:
     return DOMAIN_TO_MISCONCEPTION.get(domain, "TERMS")
+
+
+def _compact_text(value: str) -> str:
+    return " ".join(value.split()).strip()
+
+
+def _choice_label(index: int) -> str:
+    return f"{chr(ord('A') + index)})"
+
+
+def _choice_text(question: Question, index: int) -> str:
+    if index < 0 or index >= len(question.choices):
+        return "Unknown"
+    text = _compact_text(str(question.choices[index]))
+    return _CHOICE_PREFIX.sub("", text).strip() or text
+
+
+def _choice_ref(question: Question, index: int) -> str:
+    return f"{_choice_label(index)} {_choice_text(question, index)}"
 
 
 def _coerce_confidence(value: Any, default: float) -> float:
@@ -68,14 +98,35 @@ def _default_why(
     student_answer: Optional[int],
     correct: bool,
 ) -> str:
+    rationale = _compact_text(question.rationale_draft) or "Review this AZ-900 concept."
+    correct_choice = _choice_ref(question, question.answer_key)
+
     if correct:
-        return "Correct answer selected."
+        return f"Correct. {rationale}"
     if student_answer is None:
-        return f"No answer provided. Correct answer is choice {question.answer_key + 1}."
-    return (
-        f"Selected choice {student_answer + 1}; "
-        f"correct is choice {question.answer_key + 1}."
-    )
+        return f"No answer provided. Correct answer: {correct_choice}. Why: {rationale}"
+
+    selected_choice = _choice_ref(question, student_answer)
+    return f"Your answer: {selected_choice}. Correct answer: {correct_choice}. Why: {rationale}"
+
+
+def _is_low_signal_why(why: str) -> bool:
+    clean = _compact_text(why)
+    if len(clean) < 24:
+        return True
+    lowered = clean.lower()
+    return any(marker in lowered for marker in _LOW_SIGNAL_WHY_MARKERS)
+
+
+def _merge_why(default_why: str, model_why: Any, trust_model_reasoning: bool) -> str:
+    if not trust_model_reasoning or not isinstance(model_why, str):
+        return default_why
+    clean_model_why = _compact_text(model_why)
+    if not clean_model_why or _is_low_signal_why(clean_model_why):
+        return default_why
+    if clean_model_why.lower() in default_why.lower():
+        return default_why
+    return f"{default_why} {clean_model_why}"
 
 
 def _normalize_misconception_id(raw_id: Any, domain: str) -> str:
@@ -124,7 +175,12 @@ def _normalize_online_diagnosis(
         trust_model_reasoning = (
             not isinstance(model_correct, bool) or model_correct == correct
         )
-        why = model_result.get("why") if trust_model_reasoning else None
+        default_why = _default_why(question, student_answer, correct)
+        why = _merge_why(
+            default_why=default_why,
+            model_why=model_result.get("why"),
+            trust_model_reasoning=trust_model_reasoning,
+        )
         normalized_results.append(
             DiagnosisResult(
                 id=question.id,
@@ -137,9 +193,7 @@ def _normalize_online_diagnosis(
                         question.domain,
                     )
                 ),
-                why=why.strip()
-                if isinstance(why, str) and why.strip()
-                else _default_why(question, student_answer, correct),
+                why=why,
                 confidence=_coerce_confidence(
                     model_result.get("confidence")
                     if trust_model_reasoning
@@ -171,7 +225,7 @@ def _diagnose_offline(exam: Exam, answers: StudentAnswerSheet) -> Diagnosis:
                 id=q.id,
                 correct=correct,
                 misconception_id=mid,
-                why=q.rationale_draft if not correct else "Correct answer.",
+                why=_default_why(q, student_ans, correct),
                 confidence=0.9 if correct else 0.75,
             )
         )

@@ -27,6 +27,11 @@ Output ONLY valid JSON matching this schema (no markdown, no explanation):
 }
 Generate between 8 and 12 questions. Ensure answer_key is the 0-based index of
 the correct choice. Cover domains according to the plan weights.
+QUALITY RULES:
+- Each question must have one clearly best answer for AZ-900 fundamentals level.
+- Avoid ambiguous distractors that could also be partially correct.
+- Avoid deprecated product naming unless called out in rationale.
+- Write rationale_draft that explains why the keyed option is best in one sentence.
 """
 
 

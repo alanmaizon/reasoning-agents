@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..models.schemas import (
@@ -22,6 +23,8 @@ For a given question the student got wrong, produce a grounded explanation with
 citations from Microsoft Learn documentation.
 CRITICAL RULES:
 - Every claim MUST have a citation with title, url, and snippet (<=20 words).
+- Explain the correct option directly and use AZ-900 terminology.
+- Prefer concrete wording over generic feedback.
 - If you cannot find a citation, respond with explanation =
   "Insufficient evidence — please narrow your query." and still provide at least
   one placeholder citation.
@@ -53,6 +56,32 @@ _STUB_CITATIONS = [
         snippet="Cloud-based identity and access management service.",
     ),
 ]
+_DOMAIN_FALLBACK_CITATIONS = {
+    "Cloud Concepts": _STUB_CITATIONS[0],
+    "Azure Architecture": _STUB_CITATIONS[1],
+    "Security": _STUB_CITATIONS[2],
+    "Identity": Citation(
+        title="What is Microsoft Entra ID?",
+        url="https://learn.microsoft.com/en-us/entra/fundamentals/whatis",
+        snippet="Entra ID provides identity and access management for Azure resources.",
+    ),
+    "Azure Services": Citation(
+        title="Overview of Azure App Service",
+        url="https://learn.microsoft.com/en-us/azure/app-service/overview",
+        snippet="Azure App Service hosts web apps and APIs as a managed platform.",
+    ),
+    "Governance": Citation(
+        title="What is Azure Policy?",
+        url="https://learn.microsoft.com/en-us/azure/governance/policy/overview",
+        snippet="Azure Policy enforces standards and assesses compliance across resources.",
+    ),
+    "Cost Management": Citation(
+        title="Cost Management + Billing documentation",
+        url="https://learn.microsoft.com/en-us/azure/cost-management-billing/",
+        snippet="Use cost analysis and budgets to monitor and optimize Azure spend.",
+    ),
+}
+_CHOICE_PREFIX = re.compile(r"^[A-F]\)\s*")
 
 
 def _iter_dicts(value: Any) -> Iterable[Dict[str, Any]]:
@@ -86,15 +115,39 @@ def _to_snippet(text: str) -> str:
     return _trim_words(clean, 20)
 
 
-def _build_search_query(question: Question, diag: Optional[DiagnosisResult]) -> str:
-    parts = [
-        "AZ-900",
-        question.domain,
-        question.stem,
+def _choice_text(question: Question, index: int) -> str:
+    if index < 0 or index >= len(question.choices):
+        return "Unknown"
+    clean = " ".join(str(question.choices[index]).split()).strip()
+    clean = _CHOICE_PREFIX.sub("", clean).strip()
+    return clean or "Unknown"
+
+
+def _choice_ref(question: Question, index: int) -> str:
+    label = chr(ord("A") + index)
+    return f"{label}) {_choice_text(question, index)}"
+
+
+def _build_search_queries(question: Question, diag: Optional[DiagnosisResult]) -> List[str]:
+    stem = " ".join(question.stem.split())
+    correct_choice = _choice_text(question, question.answer_key)
+    queries: List[str] = [
+        f"AZ-900 {question.domain} {stem}",
+        f"AZ-900 {question.domain} {correct_choice}",
+        f"Microsoft Learn {correct_choice} Azure",
     ]
     if diag and diag.misconception_id:
-        parts.append(diag.misconception_id)
-    return " | ".join(parts)
+        queries.append(f"AZ-900 {question.domain} {diag.misconception_id}")
+
+    deduped: List[str] = []
+    seen = set()
+    for query in queries:
+        key = query.lower().strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(query)
+    return deduped
 
 
 def _extract_search_hits(payload: Dict[str, Any]) -> List[Dict[str, str]]:
@@ -240,32 +293,75 @@ def _build_placeholder_citation() -> Citation:
     )
 
 
-def _fallback_ground(question: Question, evidence: List[Citation]) -> GroundedExplanation:
-    citation = evidence[0] if evidence else _build_placeholder_citation()
+def _is_placeholder_citation(citation: Citation) -> bool:
+    url = citation.url.rstrip("/")
+    if url == "https://learn.microsoft.com":
+        return True
+    return "no matching microsoft learn evidence retrieved yet" in citation.snippet.lower()
+
+
+def _fallback_citations(question: Question, evidence: List[Citation]) -> List[Citation]:
+    real_evidence = [c for c in evidence if not _is_placeholder_citation(c)]
+    if real_evidence:
+        return real_evidence[:2]
+    citation = _DOMAIN_FALLBACK_CITATIONS.get(question.domain)
+    if citation:
+        return [citation]
+    return [_build_placeholder_citation()]
+
+
+def _deterministic_explanation(
+    question: Question,
+    diag: Optional[DiagnosisResult],
+) -> str:
+    correct = _choice_ref(question, question.answer_key)
+    rationale = " ".join(question.rationale_draft.split()).strip()
+    if not rationale:
+        rationale = "Review this AZ-900 concept and why this option best fits the service model."
+    if not rationale.endswith((".", "!", "?")):
+        rationale = f"{rationale}."
+    if diag and diag.misconception_id:
+        return f"Correct answer: {correct}. {rationale} Focus area: {diag.misconception_id}."
+    return f"Correct answer: {correct}. {rationale}"
+
+
+def _fallback_ground(
+    question: Question,
+    evidence: List[Citation],
+    diag: Optional[DiagnosisResult],
+) -> GroundedExplanation:
+    citations = _fallback_citations(question, evidence)
+    placeholder_only = (
+        len(citations) == 1 and citations[0].url.rstrip("/") == "https://learn.microsoft.com"
+    )
+    explanation = (
+        "Insufficient evidence — please narrow your query."
+        if placeholder_only
+        else _deterministic_explanation(question, diag)
+    )
     return GroundedExplanation(
         question_id=question.id,
-        explanation="Insufficient evidence — please narrow your query.",
-        citations=[citation],
+        explanation=explanation,
+        citations=citations,
     )
 
 
 def _offline_ground(question: Question, diag: Optional[DiagnosisResult]) -> GroundedExplanation:
     """Return a deterministic stub grounded explanation."""
-    domain_citations = {
-        "Cloud Concepts": _STUB_CITATIONS[0],
-        "Azure Architecture": _STUB_CITATIONS[1],
-        "Security": _STUB_CITATIONS[2],
-    }
-    cite = domain_citations.get(question.domain, _STUB_CITATIONS[0])
-    explanation = (
-        f"The correct answer is choice {question.answer_key + 1}. "
-        f"{question.rationale_draft}"
-    )
+    citations = _fallback_citations(question, [])
+    explanation = _deterministic_explanation(question, diag)
     return GroundedExplanation(
         question_id=question.id,
         explanation=explanation,
-        citations=[cite],
+        citations=citations,
     )
+
+
+def _is_low_signal_explanation(text: str) -> bool:
+    clean = " ".join(str(text).split()).strip()
+    if len(clean) < 30:
+        return True
+    return clean.lower().startswith("insufficient evidence")
 
 
 def run_grounding_verifier(
@@ -281,31 +377,40 @@ def run_grounding_verifier(
 
     # Use MCP tools when supported by the active Foundry runner.
     if _supports_tool_runner(foundry_run):
-        query = _build_search_query(question, diagnosis_result)
+        queries = _build_search_queries(question, diagnosis_result)
         discovered_tools = _discover_tool_names(foundry_run)
 
         docs_hits: List[Dict[str, str]] = []
         code_sample_hits: List[Dict[str, str]] = []
 
-        docs_payload = _run_search_tool(
-            foundry_run=foundry_run,
-            tool_name="microsoft_docs_search",
-            query=query,
-            top_k=3,
-            discovered_tools=discovered_tools,
-        )
-        if docs_payload:
-            docs_hits = _extract_search_hits(docs_payload)
+        for query in queries:
+            docs_payload = _run_search_tool(
+                foundry_run=foundry_run,
+                tool_name="microsoft_docs_search",
+                query=query,
+                top_k=3,
+                discovered_tools=discovered_tools,
+            )
+            if docs_payload:
+                docs_hits = _merge_hits(docs_hits, _extract_search_hits(docs_payload))
+            if len(docs_hits) >= 3:
+                break
 
-        code_payload = _run_search_tool(
-            foundry_run=foundry_run,
-            tool_name="microsoft_code_sample_search",
-            query=query,
-            top_k=2,
-            discovered_tools=discovered_tools,
-        )
-        if code_payload:
-            code_sample_hits = _extract_search_hits(code_payload)
+        for query in queries[:2]:
+            code_payload = _run_search_tool(
+                foundry_run=foundry_run,
+                tool_name="microsoft_code_sample_search",
+                query=query,
+                top_k=2,
+                discovered_tools=discovered_tools,
+            )
+            if code_payload:
+                code_sample_hits = _merge_hits(
+                    code_sample_hits,
+                    _extract_search_hits(code_payload),
+                )
+            if len(code_sample_hits) >= 2:
+                break
 
         hits = _merge_hits(docs_hits, code_sample_hits)[:3]
 
@@ -351,7 +456,10 @@ def run_grounding_verifier(
         data = extract_json(raw)
         result = GroundedExplanation.model_validate(data)
     except Exception:
-        return _fallback_ground(question, evidence)
+        return _fallback_ground(question, evidence, diagnosis_result)
+
+    if _is_low_signal_explanation(result.explanation):
+        return _fallback_ground(question, result.citations or evidence, diagnosis_result)
 
     # Cache any fetched URLs
     for c in result.citations:
