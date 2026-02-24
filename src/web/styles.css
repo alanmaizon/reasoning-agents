@@ -185,7 +185,8 @@ body.modal-open {
 }
 
 .result-accordion.compact {
-  margin-top: 0;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.85rem 0.85rem;
 }
 
 .stack {
@@ -289,6 +290,27 @@ select {
 
 .btn.is-loading {
   opacity: 0.5;
+  padding-left: 2.05rem;
+}
+
+.btn.is-loading::before {
+  content: "";
+  position: absolute;
+  left: 0.8rem;
+  top: 50%;
+  width: 0.82rem;
+  height: 0.82rem;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  transform: translateY(-50%);
+  animation: buttonSpin 0.75s linear infinite;
+  z-index: 2;
+  opacity: 0.9;
+}
+
+.btn.is-loading::after {
+  opacity: 0.4;
 }
 
 .btn.primary {
@@ -592,6 +614,12 @@ body > #authBanner.banner.toast {
   gap: 0.95rem;
 }
 
+#coachingGrid.grid-two {
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-top: 0.35rem;
+}
+
 .result-list {
   margin: 0.25rem 0 0.1rem 1.05rem;
   padding: 0;
@@ -605,7 +633,7 @@ body > #authBanner.banner.toast {
   padding: 0;
   list-style: none;
   display: grid;
-  gap: 0.65rem;
+  gap: 0.85rem;
 }
 
 .insight-card {
@@ -939,6 +967,15 @@ body > #authBanner.banner.toast {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes buttonSpin {
+  from {
+    transform: translateY(-50%) rotate(0deg);
+  }
+  to {
+    transform: translateY(-50%) rotate(360deg);
   }
 }
 
