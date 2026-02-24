@@ -8,7 +8,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > **AZ-900 Certification Prep** • Multi-agent system powered by Microsoft Foundry
-> Challenge project for Microsoft Agents League (🧠 Reasoning Agents track), focused on reliable multi-agent reasoning for AZ-900 coaching.
+> Challenge project for Microsoft Agents League, focused on reliable multi-agent reasoning for AZ-900 coaching.
 
 An Agents League "Reasoning Agents" submission that helps students prepare for the Microsoft AZ-900 exam by **diagnosing misconceptions** — not just scoring answers — using a planner–executor + critic/verifier + reflection loop, grounded with Microsoft Learn MCP.
 
