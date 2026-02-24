@@ -29,6 +29,7 @@
   <body class="font-sans text-slate-900 antialiased">
     <div class="bg-orb bg-orb-a"></div>
     <div class="bg-orb bg-orb-b"></div>
+    <div id="authBanner" class="banner toast info">Loading frontend config...</div>
     <main class="layout mx-auto grid w-[min(1120px,94vw)] gap-5">
       <header class="hero reveal flex flex-col gap-2">
         <div class="brand flex items-center gap-4">
@@ -46,7 +47,6 @@
 
       <section class="panel controls reveal rounded-3xl p-5 md:p-6">
         <h2 class="text-xl font-semibold">Session Setup</h2>
-        <div id="authBanner" class="banner toast info">Loading frontend config...</div>
         <div class="auth-actions flex flex-wrap items-center gap-3">
           <button id="loginBtn" class="btn primary" type="button">Sign In with Google</button>
           <button id="logoutBtn" class="btn ghost" type="button">Sign Out</button>
@@ -62,13 +62,13 @@
             User ID (manual only when auth is off)
             <input id="userId" type="text" required value="alan" />
           </label>
-          <label>
-            Session Mode
-            <select id="sessionMode">
+          <div class="mode-row">
+            <label for="sessionMode" class="mode-label">Session Mode</label>
+            <select id="sessionMode" class="mode-select">
               <option value="adaptive">Adaptive coaching</option>
               <option value="mock_test">Mock AZ-900 test</option>
             </select>
-          </label>
+          </div>
           <fieldset id="focusTopicsBlock" class="topic-fieldset">
             <legend>Focus Topics (adaptive mode)</legend>
             <div class="topic-grid">

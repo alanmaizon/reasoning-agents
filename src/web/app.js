@@ -498,7 +498,7 @@ function setAuthBusy(busy) {
   el.logoutBtn.disabled = busy;
 }
 
-async function apiJson(path, payload) {
+async function apiJson(path, payload, retried = false) {
   const headers = { "Content-Type": "application/json" };
   if (state.config.auth_enabled) {
     if (!state.token) {
@@ -512,6 +512,14 @@ async function apiJson(path, payload) {
     headers,
     body: JSON.stringify(payload),
   });
+
+  if (response.status === 401 && state.config.auth_enabled && !retried) {
+    // Recover from stale or mismatched cached access tokens by forcing refresh once.
+    state.token = null;
+    await ensureToken(true);
+    return apiJson(path, payload, true);
+  }
+
   const raw = await response.text();
   let data = null;
   try {
@@ -787,18 +795,19 @@ function renderAnswerReview(diagnosis) {
     .join("");
 }
 
-async function ensureToken() {
+async function ensureToken(forceRefresh = false) {
   if (!state.config.auth_enabled) {
     return;
   }
   if (!state.account) {
     throw new Error("Sign in first.");
   }
-  if (state.token) {
-    return;
-  }
 
-  const request = { scopes: [state.config.api_scope], account: state.account };
+  const request = {
+    scopes: [state.config.api_scope],
+    account: state.account,
+    forceRefresh: Boolean(forceRefresh),
+  };
   try {
     const tokenResult = await state.msal.acquireTokenSilent(request);
     state.token = tokenResult.accessToken;
