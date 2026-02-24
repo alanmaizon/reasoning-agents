@@ -39,6 +39,25 @@ def _normalize_issuer(value: str) -> str:
     return value.strip().rstrip("/")
 
 
+def _normalize_audience(value: str) -> str:
+    return value.strip().rstrip("/")
+
+
+def _audience_variants(value: str) -> Tuple[str, ...]:
+    normalized = _normalize_audience(value)
+    if not normalized:
+        return ()
+
+    values = [normalized]
+    if normalized.startswith("api://"):
+        raw = normalized[len("api://") :]
+        if raw:
+            values.append(raw)
+    else:
+        values.append(f"api://{normalized}")
+    return tuple(dict.fromkeys(values))
+
+
 def _append_unique(values: Tuple[str, ...], *items: str) -> Tuple[str, ...]:
     seen = {item for item in values if item}
     out = list(values)
@@ -71,6 +90,9 @@ class EntraTokenValidator:
         self._normalized_issuers = {
             _normalize_issuer(item) for item in config.issuers if item
         }
+        self._normalized_audiences = set()
+        for audience in config.audiences:
+            self._normalized_audiences.update(_audience_variants(audience))
         self._jwks_uri = config.jwks_uri
         self._jwks_keys: Dict[str, Any] = {}
         self._jwks_expires_at = 0.0
@@ -182,6 +204,34 @@ class EntraTokenValidator:
                     "Missing required roles: " + ", ".join(missing_roles)
                 )
 
+    def _extract_token_audiences(self, claims: Dict[str, Any]) -> Tuple[str, ...]:
+        raw = claims.get("aud")
+        if isinstance(raw, str) and raw.strip():
+            return (raw.strip(),)
+        if isinstance(raw, (list, tuple)):
+            return tuple(
+                item.strip()
+                for item in raw
+                if isinstance(item, str) and item.strip()
+            )
+        return ()
+
+    def _enforce_audience(self, claims: Dict[str, Any]) -> None:
+        token_audiences = self._extract_token_audiences(claims)
+        if not token_audiences:
+            raise EntraUnauthorizedError("Bearer token audience is missing.")
+
+        normalized_token_audiences = set()
+        for audience in token_audiences:
+            normalized_token_audiences.update(_audience_variants(audience))
+
+        if self._normalized_audiences and not (
+            normalized_token_audiences & self._normalized_audiences
+        ):
+            raise EntraUnauthorizedError(
+                "Bearer token audience is not allowed."
+            )
+
     def validate_token(self, token: str) -> Dict[str, Any]:
         if not token:
             raise EntraUnauthorizedError("Bearer token is missing.")
@@ -204,15 +254,25 @@ class EntraTokenValidator:
                 token,
                 key=signing_key,
                 algorithms=["RS256"],
-                audience=self._config.audiences,
-                options={"require": ["exp"], "verify_iss": False},
+                options={
+                    "require": ["exp"],
+                    "verify_iss": False,
+                    "verify_aud": False,
+                },
+                leeway=60,
             )
         except jwt.ExpiredSignatureError as exc:
             raise EntraUnauthorizedError("Bearer token has expired.") from exc
+        except jwt.ImmatureSignatureError as exc:
+            raise EntraUnauthorizedError(
+                "Bearer token is not active yet (clock skew)."
+            ) from exc
         except InvalidTokenError as exc:
             raise EntraUnauthorizedError(
-                "Bearer token validation failed."
+                f"Bearer token validation failed: {exc}"
             ) from exc
+
+        self._enforce_audience(claims)
 
         token_tenant = claims.get("tid")
         if (
