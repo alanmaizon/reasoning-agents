@@ -399,10 +399,14 @@ select {
 .dropdown-sentence {
   margin: 0;
   line-height: 1.65;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.32rem;
 }
 
 .dropdown-answer {
-  margin: 0 0.35rem;
+  margin: 0;
   padding: 0.35rem 0.45rem;
   border: 1px solid var(--line);
   border-radius: 8px;

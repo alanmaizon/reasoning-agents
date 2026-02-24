@@ -443,16 +443,22 @@ function renderDropdownSentence(question) {
   const token = "[Dropdown Menu]";
   const stem = String(question.stem || "").replace(/\s+/g, " ").trim();
   if (!stem.includes(token)) {
-    return `<p class="dropdown-sentence"><span>${escapeHtml(stem)}</span>${select}</p>`;
+    return `<p class="dropdown-sentence"><span>${escapeHtml(stem)}</span> ${select}</p>`;
   }
 
   const parts = stem.split(token);
   const before = String(parts.shift() || "").replace(/\s+/g, " ").trim();
   let after = String(parts.join(token) || "").replace(/\s+/g, " ").trim();
+  const beVerbMatch = after.match(/^(is|are)\s+(.+)$/i);
+  if (beVerbMatch) {
+    const verb = beVerbMatch[1].toLowerCase();
+    const rest = lowercaseInlineContinuation(beVerbMatch[2]);
+    after = `${verb} ${rest}`;
+  }
   if (/\b(is|are)\s*$/i.test(before)) {
     after = lowercaseInlineContinuation(after);
   }
-  return `<p class="dropdown-sentence"><span>${escapeHtml(before)}</span>${select}<span>${escapeHtml(after)}</span></p>`;
+  return `<p class="dropdown-sentence"><span>${escapeHtml(before)}</span> ${select} <span>${escapeHtml(after)}</span></p>`;
 }
 
 function updateQuestionProgress() {
