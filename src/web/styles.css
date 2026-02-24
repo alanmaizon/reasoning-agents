@@ -333,6 +333,13 @@ select {
   color: #ffffff;
 }
 
+#submitBtn {
+  min-width: 11.8rem;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+}
+
 .auth-actions {
   display: flex;
   flex-wrap: wrap;
