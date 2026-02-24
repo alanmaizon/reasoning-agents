@@ -37,6 +37,17 @@ def _get_env(name: str, required: bool = True) -> Optional[str]:
     return val
 
 
+def _get_int_env(name: str, default: int, minimum: int = 0) -> int:
+    raw = _get_env(name, required=False)
+    if raw is None:
+        return max(minimum, default)
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        return max(minimum, default)
+    return max(minimum, value)
+
+
 def _to_jsonable(value: Any) -> Any:
     """Best-effort conversion of SDK objects to plain Python structures."""
     if isinstance(value, (str, int, float, bool)) or value is None:
@@ -232,12 +243,14 @@ def _build_direct_azure_openai_client(endpoint: str) -> Any:
     from openai import AzureOpenAI
 
     api_version = os.environ.get("AZURE_OPENAI_API_VERSION", "2024-10-21")
+    max_retries = _get_int_env("OPENAI_MAX_RETRIES", default=0, minimum=0)
     api_key = _get_env("AZURE_OPENAI_API_KEY", required=False)
     if api_key:
         return AzureOpenAI(
             azure_endpoint=endpoint,
             api_key=api_key,
             api_version=api_version,
+            max_retries=max_retries,
         )
 
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -250,6 +263,7 @@ def _build_direct_azure_openai_client(endpoint: str) -> Any:
         azure_endpoint=endpoint,
         azure_ad_token_provider=token_provider,
         api_version=api_version,
+        max_retries=max_retries,
     )
 
 
@@ -469,7 +483,17 @@ class FoundryRunner:
             if openai_client is None:
                 raise RuntimeError("No OpenAI-compatible client available")
 
-            response = openai_client.chat.completions.create(
+            chat_client = openai_client
+            with_options = getattr(openai_client, "with_options", None)
+            if callable(with_options):
+                try:
+                    chat_client = with_options(
+                        max_retries=_get_int_env("OPENAI_MAX_RETRIES", default=0, minimum=0)
+                    )
+                except Exception:
+                    chat_client = openai_client
+
+            response = chat_client.chat.completions.create(
                 model=self.deployment,
                 messages=[
                     {"role": "system", "content": system_prompt},
