@@ -15,6 +15,8 @@ const state = {
   sessionActive: false,
   canStartSession: false,
   confirmResolver: null,
+  examNavX: 0,
+  examNavY: 0,
 };
 
 const MSAL_SOURCES = [
@@ -56,6 +58,14 @@ const el = {
   confirmOverlay: document.getElementById("confirmOverlay"),
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   confirmOkBtn: document.getElementById("confirmOkBtn"),
+  examNavWidget: document.getElementById("examNavWidget"),
+  examNavQuestion: document.getElementById("examNavQuestion"),
+  navPrevBtn: document.getElementById("navPrevBtn"),
+  navNextBtn: document.getElementById("navNextBtn"),
+  navMoveUpBtn: document.getElementById("navMoveUpBtn"),
+  navMoveLeftBtn: document.getElementById("navMoveLeftBtn"),
+  navMoveRightBtn: document.getElementById("navMoveRightBtn"),
+  navMoveDownBtn: document.getElementById("navMoveDownBtn"),
   evaluationSummary: document.getElementById("evaluationSummary"),
   answerReviewList: document.getElementById("answerReviewList"),
   misconceptionList: document.getElementById("misconceptionList"),
@@ -66,6 +76,7 @@ const el = {
 const AZ900_PASS_SCORE = 700;
 const AZ900_SCORE_MAX = 1000;
 const AZ900_EXAM_TIME_MINUTES = 45;
+const EXAM_NAV_MOVE_STEP = 28;
 const MISCONCEPTION_META = {
   SRM: {
     title: "Shared Responsibility Model",
@@ -438,6 +449,11 @@ function refreshStartSessionControls() {
 function setPlanExamVisible(visible) {
   el.planExamPanel.classList.toggle("is-hidden", !visible);
   el.planExamPanel.setAttribute("aria-hidden", visible ? "false" : "true");
+  setExamNavigatorVisible(
+    visible &&
+      Boolean(state.exam?.questions?.length) &&
+      !state.examSubmitted
+  );
 }
 
 function setCoachingPanelVisible(visible) {
@@ -474,6 +490,96 @@ function setResultsVisibility(visible, options = {}) {
   if (showGrounded && el.groundedSection instanceof HTMLDetailsElement) {
     el.groundedSection.open = true;
   }
+}
+
+function setExamNavigatorVisible(visible) {
+  if (!el.examNavWidget) {
+    return;
+  }
+  const show = Boolean(visible);
+  el.examNavWidget.classList.toggle("is-hidden", !show);
+  el.examNavWidget.setAttribute("aria-hidden", show ? "false" : "true");
+  if (show) {
+    applyExamNavigatorPosition();
+    updateExamNavigator();
+  }
+}
+
+function clampExamNavigatorOffsets() {
+  const maxX = Math.max(80, Math.round(window.innerWidth * 0.38));
+  const maxY = Math.max(70, Math.round(window.innerHeight * 0.4));
+  state.examNavX = Math.min(maxX, Math.max(-maxX, state.examNavX));
+  state.examNavY = Math.min(maxY, Math.max(-maxY, state.examNavY));
+}
+
+function applyExamNavigatorPosition() {
+  if (!el.examNavWidget) {
+    return;
+  }
+  clampExamNavigatorOffsets();
+  el.examNavWidget.style.setProperty("--nav-x", `${state.examNavX}px`);
+  el.examNavWidget.style.setProperty("--nav-y", `${state.examNavY}px`);
+}
+
+function examQuestionDetails() {
+  return Array.from(
+    el.examContainer.querySelectorAll("details.accordion-question")
+  );
+}
+
+function currentOpenQuestionIndex() {
+  const details = examQuestionDetails();
+  if (details.length === 0) {
+    return -1;
+  }
+  const openIndex = details.findIndex((item) => item.open);
+  if (openIndex >= 0) {
+    return openIndex;
+  }
+  return 0;
+}
+
+function openQuestionByIndex(index, options = {}) {
+  const details = examQuestionDetails();
+  if (details.length === 0) {
+    return;
+  }
+  const nextIndex = Math.min(details.length - 1, Math.max(0, index));
+  details.forEach((item, itemIndex) => {
+    item.open = itemIndex === nextIndex;
+  });
+  const current = details[nextIndex];
+  if (options.scroll !== false) {
+    current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+  updateExamNavigator();
+}
+
+function moveExamNavigator(dx, dy) {
+  state.examNavX += dx;
+  state.examNavY += dy;
+  applyExamNavigatorPosition();
+}
+
+function updateExamNavigator() {
+  if (!el.examNavQuestion || !el.navPrevBtn || !el.navNextBtn) {
+    return;
+  }
+  const total = state.exam?.questions?.length || 0;
+  if (total === 0) {
+    el.examNavQuestion.textContent = "No questions";
+    el.navPrevBtn.disabled = true;
+    el.navNextBtn.disabled = true;
+    return;
+  }
+  const index = currentOpenQuestionIndex();
+  const q = state.exam.questions[index] || state.exam.questions[0];
+  const answeredCount = answeredQuestionCount();
+  const answeredTag =
+    typeof state.answers[q.id] === "number" ? "Answered" : "Pending";
+  el.examNavQuestion.textContent = `Q${q.id} • ${index + 1}/${total} • ${answeredTag} • ${answeredCount}/${total}`;
+  el.navPrevBtn.disabled = state.examLocked || index <= 0;
+  el.navNextBtn.disabled = state.examLocked || index >= total - 1;
 }
 
 function totalQuestionCount() {
@@ -545,6 +651,7 @@ function setExamAccessibility(locked, message = "") {
   });
 
   refreshSubmitButton();
+  updateExamNavigator();
 }
 
 function msalErrorCode(err) {
@@ -732,11 +839,13 @@ function updateQuestionProgress() {
     el.planMeta.textContent = `${state.planMetaBase} | Answered: ${answered}/${state.exam.questions.length}`;
   }
   refreshSubmitButton();
+  updateExamNavigator();
 }
 
 function renderExam(exam) {
   if (!exam?.questions?.length) {
     el.examContainer.innerHTML = "";
+    updateExamNavigator();
     return;
   }
 
@@ -769,6 +878,7 @@ function renderExam(exam) {
       `;
     })
     .join("");
+  updateExamNavigator();
 }
 
 function renderResults(result) {
@@ -1219,9 +1329,9 @@ async function startSession(event) {
     const modeText = modeLabel(state.sessionMode);
     state.planMetaBase = `Mode: ${modeText} | Plan domains: ${domains || "n/a"} | Questions: ${result.exam?.questions?.length || 0}`;
     el.planMeta.textContent = state.planMetaBase;
+    renderExam(result.exam);
     setPlanExamVisible(true);
     setCoachingPanelVisible(false);
-    renderExam(result.exam);
     clearResults();
     setResultsVisibility(false);
     updateQuestionProgress();
@@ -1305,23 +1415,23 @@ function bindEvents() {
     syncModeInputs();
   });
   el.examContainer.addEventListener("toggle", (event) => {
-    if (state.examLocked || state.submitting || state.examSubmitted) {
-      return;
-    }
     const target = event.target;
     if (!(target instanceof HTMLDetailsElement)) {
       return;
     }
-    if (!target.classList.contains("accordion-question") || !target.open) {
+    if (!target.classList.contains("accordion-question")) {
       return;
     }
-    el.examContainer
-      .querySelectorAll("details.accordion-question[open]")
-      .forEach((detailsEl) => {
-        if (detailsEl !== target) {
-          detailsEl.open = false;
-        }
-      });
+    if (!state.examLocked && !state.submitting && !state.examSubmitted && target.open) {
+      el.examContainer
+        .querySelectorAll("details.accordion-question[open]")
+        .forEach((detailsEl) => {
+          if (detailsEl !== target) {
+            detailsEl.open = false;
+          }
+        });
+    }
+    updateExamNavigator();
   }, true);
   el.examContainer.addEventListener("change", (event) => {
     if (state.examLocked || state.submitting || state.examSubmitted) {
@@ -1349,6 +1459,37 @@ function bindEvents() {
     }
   });
   el.submitBtn.addEventListener("click", submitSession);
+  if (el.navPrevBtn && el.navNextBtn) {
+    el.navPrevBtn.addEventListener("click", () => {
+      if (state.examLocked || state.submitting || state.examSubmitted) {
+        return;
+      }
+      openQuestionByIndex(currentOpenQuestionIndex() - 1);
+    });
+    el.navNextBtn.addEventListener("click", () => {
+      if (state.examLocked || state.submitting || state.examSubmitted) {
+        return;
+      }
+      openQuestionByIndex(currentOpenQuestionIndex() + 1);
+    });
+  }
+  if (el.navMoveUpBtn && el.navMoveLeftBtn && el.navMoveRightBtn && el.navMoveDownBtn) {
+    el.navMoveUpBtn.addEventListener("click", () => {
+      moveExamNavigator(0, -EXAM_NAV_MOVE_STEP);
+    });
+    el.navMoveLeftBtn.addEventListener("click", () => {
+      moveExamNavigator(-EXAM_NAV_MOVE_STEP, 0);
+    });
+    el.navMoveRightBtn.addEventListener("click", () => {
+      moveExamNavigator(EXAM_NAV_MOVE_STEP, 0);
+    });
+    el.navMoveDownBtn.addEventListener("click", () => {
+      moveExamNavigator(0, EXAM_NAV_MOVE_STEP);
+    });
+  }
+  window.addEventListener("resize", () => {
+    applyExamNavigatorPosition();
+  });
   el.confirmCancelBtn.addEventListener("click", () => {
     closeRestartConfirm(false);
   });

@@ -627,6 +627,68 @@ body > #authBanner.banner.toast {
   margin-top: 0.35rem;
 }
 
+.exam-nav-widget {
+  position: fixed;
+  right: max(1rem, calc((100vw - min(1120px, 94vw)) / 2 + 0.45rem));
+  bottom: 1rem;
+  width: min(320px, calc(100vw - 1.3rem));
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 0.7rem;
+  background:
+    linear-gradient(
+      145deg,
+      rgba(243, 250, 253, 0.92) 0%,
+      rgba(255, 255, 255, 0.92) 100%
+    );
+  box-shadow: 0 16px 36px rgba(11, 31, 47, 0.2);
+  backdrop-filter: blur(8px);
+  z-index: 35;
+  transform: translate(var(--nav-x, 0px), var(--nav-y, 0px));
+  transition: transform 140ms ease;
+}
+
+.exam-nav-head {
+  margin-bottom: 0.52rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #1d4a60;
+}
+
+.exam-nav-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.nav-btn {
+  min-height: 2.6rem;
+  font-weight: 700;
+}
+
+.exam-nav-move {
+  margin-top: 0.56rem;
+  display: grid;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.exam-nav-move-mid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.move-btn {
+  min-height: 2.25rem;
+  min-width: 2.9rem;
+  padding: 0.38rem 0.78rem;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
 .result-list {
   margin: 0.25rem 0 0.1rem 1.05rem;
   padding: 0;
