@@ -253,6 +253,15 @@ Optional overrides:
 - `APP_DIR` (default `/home/<VM_USER>/app`)
 - `SERVICE_NAME` (default `mdt-api`)
 
+Tune VM runtime for moderate concurrency (workers + nginx timeouts):
+
+```bash
+export VM_HOST=<vm-fqdn>
+export VM_USER=azureuser
+export HEALTHCHECK_URL=https://<vm-fqdn>/healthz
+bash scripts/azure/tune_vm_runtime.sh
+```
+
 ## Entra External ID User Flow (CLI)
 
 Create an external tenant (one-time):
