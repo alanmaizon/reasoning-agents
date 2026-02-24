@@ -1,4 +1,4 @@
-# Condor Console — Readiness Coach
+# Condor Console
 
 [![Microsoft Agents League](https://img.shields.io/badge/Microsoft%20Agents%20League-Submission-0078D4?logo=github)](https://github.com/microsoft/agentsleague)
 [![Track: Reasoning Agents](https://img.shields.io/badge/Track-%F0%9F%A7%A0%20Reasoning%20Agents-f8c7e7)](https://github.com/microsoft/agentsleague/issues/38)
