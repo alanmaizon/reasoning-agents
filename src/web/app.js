@@ -422,26 +422,37 @@ function isDropdownQuestion(question) {
   return typeof question?.stem === "string" && question.stem.includes("[Dropdown Menu]");
 }
 
+function lowercaseInlineContinuation(text) {
+  const clean = String(text || "");
+  if (clean.length < 2) {
+    return clean;
+  }
+  const first = clean[0];
+  const second = clean[1];
+  if (first >= "A" && first <= "Z" && second >= "a" && second <= "z") {
+    return `${first.toLowerCase()}${clean.slice(1)}`;
+  }
+  return clean;
+}
+
 function renderDropdownSentence(question) {
-  const select = `
-    <select class="dropdown-answer" data-qid="${escapeHtml(question.id)}">
-      <option value="">Select an option</option>
-      ${question.choices
-        .map((choice, idx) => `<option value="${idx}">${escapeHtml(stripChoicePrefix(choice))}</option>`)
-        .join("")}
-    </select>
-  `;
+  const select = `<select class="dropdown-answer" data-qid="${escapeHtml(question.id)}"><option value="">Select an option</option>${question.choices
+    .map((choice, idx) => `<option value="${idx}">${escapeHtml(stripChoicePrefix(choice))}</option>`)
+    .join("")}</select>`;
 
   const token = "[Dropdown Menu]";
-  const stem = String(question.stem);
+  const stem = String(question.stem || "").replace(/\s+/g, " ").trim();
   if (!stem.includes(token)) {
-    return `<p class="dropdown-sentence">${escapeHtml(stem)}</p>${select}`;
+    return `<p class="dropdown-sentence"><span>${escapeHtml(stem)}</span>${select}</p>`;
   }
 
   const parts = stem.split(token);
-  const before = parts.shift() || "";
-  const after = parts.join(token);
-  return `<p class="dropdown-sentence">${escapeHtml(before)}${select}${escapeHtml(after)}</p>`;
+  const before = String(parts.shift() || "").replace(/\s+/g, " ").trim();
+  let after = String(parts.join(token) || "").replace(/\s+/g, " ").trim();
+  if (/\b(is|are)\s*$/i.test(before)) {
+    after = lowercaseInlineContinuation(after);
+  }
+  return `<p class="dropdown-sentence"><span>${escapeHtml(before)}</span>${select}<span>${escapeHtml(after)}</span></p>`;
 }
 
 function updateQuestionProgress() {
