@@ -9,6 +9,8 @@
   --accent: #d66d1a;
   --accent-ink: #1d1207;
   --danger: #af1b3f;
+  --font-sans: "Aptos", "Aptos Display", "Segoe UI Variable", "Segoe UI", "Calibri", sans-serif;
+  --font-mono: "Aptos Mono", "Cascadia Mono", "Consolas", "Menlo", monospace;
 }
 
 * {
@@ -18,7 +20,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Space Grotesk", "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   color: var(--ink);
   background:
     radial-gradient(1400px 800px at 5% -10%, #d2edf4 0%, transparent 60%),
@@ -98,6 +100,10 @@ body.modal-open {
   text-transform: uppercase;
   letter-spacing: 0.18em;
   color: #215168;
+}
+
+.mono {
+  font-family: var(--font-mono);
 }
 
 .panel {
@@ -373,10 +379,6 @@ body > #authBanner.banner.toast {
     );
 }
 
-.mono {
-  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-
 .small {
   font-size: 0.85rem;
 }
@@ -559,16 +561,175 @@ body > #authBanner.banner.toast {
   gap: 0.35rem;
 }
 
-.grounded-list {
+#misconceptionList,
+#lessonList {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
   display: grid;
   gap: 0.65rem;
 }
 
+.insight-card {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 0.74rem 0.8rem;
+  background: #ffffff;
+  box-shadow: 0 8px 22px rgba(11, 31, 47, 0.06);
+}
+
+.misconception-card {
+  background:
+    linear-gradient(140deg, rgba(230, 248, 250, 0.76), rgba(255, 255, 255, 0.95));
+}
+
+.lesson-card {
+  background:
+    linear-gradient(140deg, rgba(255, 246, 235, 0.8), rgba(255, 255, 255, 0.95));
+}
+
+.insight-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.insight-code {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 0.14rem 0.55rem;
+  font-size: 0.73rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #35556d;
+  background: rgba(255, 255, 255, 0.78);
+}
+
+.insight-title {
+  margin: 0;
+  font-size: 0.96rem;
+  line-height: 1.35;
+}
+
+.insight-summary {
+  margin: 0.42rem 0 0;
+  color: #1f3a4d;
+  line-height: 1.45;
+}
+
+.insight-focus {
+  margin: 0.46rem 0 0;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.lesson-point {
+  margin: 0.52rem 0 0;
+  padding-top: 0.52rem;
+  border-top: 1px dashed rgba(57, 97, 122, 0.26);
+  line-height: 1.45;
+}
+
+.insight-empty {
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  padding: 0.65rem 0.72rem;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.grounded-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
 .grounded-item {
   border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 0.9rem 0.95rem;
+  background:
+    linear-gradient(145deg, rgba(236, 248, 252, 0.75), rgba(255, 255, 255, 0.98));
+  box-shadow: 0 10px 28px rgba(11, 31, 47, 0.09);
+}
+
+.grounded-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.58rem;
+}
+
+.grounded-question-id {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.18rem 0.58rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #204d63;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.grounded-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(15, 109, 112, 0.35);
+  background: rgba(15, 109, 112, 0.1);
+  color: #0f6d70;
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.16rem 0.54rem;
+}
+
+.grounded-explanation {
+  margin: 0;
+  line-height: 1.48;
+  color: #19384a;
+}
+
+.grounded-citations-title {
+  margin-top: 0.72rem;
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: #385f74;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.citation-list {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.52rem;
+}
+
+.citation-item {
+  border: 1px solid rgba(16, 40, 58, 0.12);
   border-radius: 12px;
-  padding: 0.7rem;
-  background: #fcfdff;
+  padding: 0.55rem 0.6rem;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.citation-link {
+  color: #0f5c8a;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.citation-link:hover {
+  text-decoration: underline;
+}
+
+.citation-snippet {
+  margin: 0.28rem 0 0;
+  color: var(--muted);
+  line-height: 1.42;
 }
 
 .evaluation-summary {

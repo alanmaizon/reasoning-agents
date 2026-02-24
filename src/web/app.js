@@ -66,6 +66,96 @@ const el = {
 const AZ900_PASS_SCORE = 700;
 const AZ900_SCORE_MAX = 1000;
 const AZ900_EXAM_TIME_MINUTES = 45;
+const MISCONCEPTION_META = {
+  SRM: {
+    title: "Shared Responsibility Model",
+    summary:
+      "Confusion about which security and operations tasks are handled by Microsoft vs the customer.",
+    focus:
+      "Revisit ownership differences across IaaS, PaaS, and SaaS for data, identity, network, and patching.",
+  },
+  IDAM: {
+    title: "Identity and Access Management",
+    summary:
+      "Mixing up authentication, authorization, and identity governance services in Azure.",
+    focus:
+      "Differentiate Microsoft Entra ID, RBAC, MFA, and Conditional Access by purpose and scope.",
+  },
+  REGION: {
+    title: "Global Infrastructure and Resiliency",
+    summary:
+      "Confusion between regions, Availability Zones, and region pairs for resiliency design.",
+    focus:
+      "Map each workload requirement to the correct resiliency scope: zone, region, or paired-region DR.",
+  },
+  PRICING: {
+    title: "Pricing and Cost Management",
+    summary:
+      "Incorrect assumptions about pricing tools, budget controls, and cost optimization options.",
+    focus:
+      "Practice when to use Pricing Calculator, Cost Management, budgets, and reserved capacity.",
+  },
+  GOV: {
+    title: "Governance and Compliance",
+    summary:
+      "Unclear distinction between policy enforcement, standards, and organizational controls.",
+    focus:
+      "Choose the right governance control (Policy, tags, locks, templates) by enforcement level and scope.",
+  },
+  SEC: {
+    title: "Security Controls and Threat Protection",
+    summary:
+      "Confusion between posture management, threat protection, and network security controls.",
+    focus:
+      "Differentiate Defender for Cloud, Firewall/NSG controls, and identity-driven protections.",
+  },
+  SERVICE_SCOPE: {
+    title: "Service Model and Scope",
+    summary:
+      "Incorrectly classifying Azure services into IaaS, PaaS, or SaaS categories.",
+    focus:
+      "Reinforce service model mapping with canonical examples like VMs (IaaS) and App Service (PaaS).",
+  },
+  TERMS: {
+    title: "Azure Terminology and Fundamentals",
+    summary:
+      "General misunderstanding of core AZ-900 terms and service definitions.",
+    focus:
+      "Review foundational definitions and compare similar terms in short scenario-based drills.",
+  },
+};
+const LESSON_CONCEPT_RULES = [
+  {
+    concept: "Security posture and threat protection",
+    explanation:
+      "Use Defender for Cloud for posture recommendations and threat detection across Azure resources.",
+    keywords: ["security center", "defender for cloud", "threat protection"],
+  },
+  {
+    concept: "Identity and access control",
+    explanation:
+      "Use Microsoft Entra ID for identity and RBAC/Conditional Access for access governance decisions.",
+    keywords: ["active directory", "entra id", "identity", "access permissions", "rbac", "mfa"],
+  },
+  {
+    concept: "Network filtering and traffic control",
+    explanation:
+      "Use Azure Firewall/NSG controls for explicit traffic filtering based on protocol, destination, and FQDN.",
+    keywords: ["firewall", "fqdn", "outbound http", "network security"],
+  },
+  {
+    concept: "Governance and compliance enforcement",
+    explanation:
+      "Use Azure Policy and governance tooling to enforce organizational standards at scale.",
+    keywords: ["policy", "blueprint", "compliance", "standards", "governance", "resource lock", "tag"],
+  },
+  {
+    concept: "Cost monitoring and optimization",
+    explanation:
+      "Use Cost Management + Billing, budgets, and forecasting to track and optimize Azure spend.",
+    keywords: ["cost management", "pricing", "billing", "budget", "spending", "reserved"],
+  },
+];
 
 function modeLabel(mode) {
   if (mode === "mock_test") {
@@ -664,27 +754,77 @@ function renderResults(result) {
   const grounded = result?.grounded || [];
 
   el.misconceptionList.innerHTML = misconceptions.length
-    ? misconceptions.map((m) => `<li>${escapeHtml(m)}</li>`).join("")
-    : "<li>No misconceptions detected.</li>";
+    ? misconceptions
+        .map((code) => {
+          const meta = MISCONCEPTION_META[code] || {
+            title: "Targeted Review Area",
+            summary: "A recurring error pattern was detected for this domain concept.",
+            focus: "Review the related Microsoft Learn module and retest this concept.",
+          };
+          return `
+            <li class="insight-card misconception-card">
+              <div class="insight-head">
+                <span class="insight-code">${escapeHtml(code)}</span>
+                <h4 class="insight-title">${escapeHtml(meta.title)}</h4>
+              </div>
+              <p class="insight-summary">${escapeHtml(meta.summary)}</p>
+              <p class="insight-focus"><strong>Focus:</strong> ${escapeHtml(meta.focus)}</p>
+            </li>
+          `;
+        })
+        .join("")
+    : "<li class='insight-empty'>No major misconception trend detected.</li>";
 
   el.lessonList.innerHTML = lessons.length
-    ? lessons.map((p) => `<li>${escapeHtml(p)}</li>`).join("")
-    : "<li>No lesson points returned.</li>";
+    ? lessons
+        .map((point) => {
+          const lower = String(point || "").toLowerCase();
+          const rule =
+            LESSON_CONCEPT_RULES.find((candidate) =>
+              candidate.keywords.some((keyword) => lower.includes(keyword))
+            ) || {
+              concept: "AZ-900 concept reinforcement",
+              explanation:
+                "Reinforce this concept with one Microsoft Learn module and one scenario-based practice question.",
+            };
+          return `
+            <li class="insight-card lesson-card">
+              <div class="insight-head">
+                <span class="insight-code">Concept</span>
+                <h4 class="insight-title">${escapeHtml(rule.concept)}</h4>
+              </div>
+              <p class="insight-summary">${escapeHtml(rule.explanation)}</p>
+              <p class="lesson-point">${escapeHtml(point)}</p>
+            </li>
+          `;
+        })
+        .join("")
+    : "<li class='insight-empty'>No lesson points returned.</li>";
 
   el.groundedList.innerHTML = grounded.length
     ? grounded
         .map((g) => {
           const cites = (g.citations || [])
             .map(
-              (c) =>
-                `<li><a href="${escapeHtml(c.url)}" target="_blank" rel="noreferrer">${escapeHtml(c.title)}</a>: ${escapeHtml(c.snippet)}</li>`
+              (c) => `
+                <li class="citation-item">
+                  <a class="citation-link" href="${escapeHtml(c.url)}" target="_blank" rel="noreferrer">
+                    ${escapeHtml(c.title)}
+                  </a>
+                  <p class="citation-snippet">${escapeHtml(c.snippet)}</p>
+                </li>
+              `
             )
             .join("");
           return `
             <article class="grounded-item">
-              <div class="mono small">Question ${escapeHtml(g.question_id)}</div>
-              <p>${escapeHtml(g.explanation)}</p>
-              <ul class="result-list">${cites}</ul>
+              <header class="grounded-head">
+                <span class="grounded-question-id">Question ${escapeHtml(g.question_id)}</span>
+                <span class="grounded-pill">Grounded</span>
+              </header>
+              <p class="grounded-explanation">${escapeHtml(g.explanation)}</p>
+              <div class="grounded-citations-title">Evidence sources</div>
+              <ul class="citation-list">${cites}</ul>
             </article>
           `;
         })
@@ -752,8 +892,8 @@ function renderEvaluationSummary(diagnosis) {
 function clearResults() {
   el.evaluationSummary.innerHTML = "<p class='small'>Submit your quiz to calculate your estimated AZ-900 score.</p>";
   el.answerReviewList.innerHTML = "<p class='small'>Submit your quiz to see answer review.</p>";
-  el.misconceptionList.innerHTML = "<li>Start a session and submit answers.</li>";
-  el.lessonList.innerHTML = "<li>Start a session and submit answers.</li>";
+  el.misconceptionList.innerHTML = "<li class='insight-empty'>Start a session and submit answers.</li>";
+  el.lessonList.innerHTML = "<li class='insight-empty'>Start a session and submit answers.</li>";
   el.groundedList.innerHTML = "<p class='small'>No grounded explanations yet.</p>";
 }
 
