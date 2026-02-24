@@ -75,6 +75,8 @@ cp .env.example .env
 python -m src.main
 ```
 
+If your shell maps `python`/`pip` differently, use `python3` and `pip3` instead.
+
 ## Run As API (Local)
 
 ```bash
