@@ -58,8 +58,10 @@ class ThrottledMCPRunner:
 
     def __init__(self) -> None:
         self.tool_calls = 0
+        self.list_calls = 0
 
     def list_mcp_tools(self):
+        self.list_calls += 1
         return ["microsoft_docs_search", "microsoft_code_sample_search", "microsoft_docs_fetch"]
 
     def run_mcp_tool(self, tool_name, arguments):
@@ -147,6 +149,20 @@ def test_grounding_mcp_rate_limit_fails_fast():
     assert result.citations
     # Fail-fast on 429 should avoid retry fanout across argument shapes/queries.
     assert runner.tool_calls == 1
+    assert runner.list_calls == 1
+
+    # A second grounding call with the same runner should skip MCP entirely while
+    # cooldown is active, avoiding additional throttled calls.
+    second = run_grounding_verifier(
+        question=question,
+        diagnosis_result=diagnosis,
+        offline=False,
+        foundry_run=runner,
+    )
+    assert second.question_id == "q1"
+    assert second.citations
+    assert runner.tool_calls == 1
+    assert runner.list_calls == 1
 
 
 def test_direct_openai_runner_not_treated_as_mcp_capable():

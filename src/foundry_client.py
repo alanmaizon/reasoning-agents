@@ -350,7 +350,16 @@ class FoundryRunner:
         openai_client = self._get_project_openai_client()
         if openai_client is None:
             return None
-        responses = getattr(openai_client, "responses", None)
+        client_for_mcp = openai_client
+        with_options = getattr(openai_client, "with_options", None)
+        if callable(with_options):
+            try:
+                # Fail fast on throttled MCP calls; grounding layer handles fallback.
+                client_for_mcp = with_options(max_retries=0)
+            except Exception:
+                client_for_mcp = openai_client
+
+        responses = getattr(client_for_mcp, "responses", None)
         create = getattr(responses, "create", None)
         if not callable(create):
             return None
@@ -380,7 +389,16 @@ class FoundryRunner:
         openai_client = self._get_project_openai_client()
         if openai_client is None:
             return None
-        responses = getattr(openai_client, "responses", None)
+        client_for_mcp = openai_client
+        with_options = getattr(openai_client, "with_options", None)
+        if callable(with_options):
+            try:
+                # Fail fast on throttled MCP calls; grounding layer handles fallback.
+                client_for_mcp = with_options(max_retries=0)
+            except Exception:
+                client_for_mcp = openai_client
+
+        responses = getattr(client_for_mcp, "responses", None)
         create = getattr(responses, "create", None)
         if not callable(create):
             return None

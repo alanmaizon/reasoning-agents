@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any, Dict, Iterable, List, Optional
 
 from ..models.schemas import (
@@ -90,6 +90,9 @@ _CHOICE_PREFIX = re.compile(r"^[A-F]\)\s*")
 
 class MCPRateLimitedError(RuntimeError):
     """Raised when MCP calls are throttled and should fail fast."""
+
+
+_MCP_RATE_LIMIT_COOLDOWN_SECONDS = 30.0
 
 
 def _iter_dicts(value: Any) -> Iterable[Dict[str, Any]]:
@@ -402,6 +405,23 @@ def _short_error(exc: Exception, max_len: int = 240) -> str:
     return f"{text[: max_len - 3].rstrip()}..."
 
 
+def _mcp_cooldown_remaining(foundry_run: Any) -> float:
+    until = getattr(foundry_run, "_mcp_rate_limited_until", 0.0)
+    try:
+        until_num = float(until)
+    except (TypeError, ValueError):
+        return 0.0
+    return max(0.0, until_num - monotonic())
+
+
+def _mark_mcp_rate_limited(foundry_run: Any, cooldown_seconds: float = _MCP_RATE_LIMIT_COOLDOWN_SECONDS) -> None:
+    try:
+        setattr(foundry_run, "_mcp_rate_limited_until", monotonic() + max(1.0, cooldown_seconds))
+    except Exception:
+        # Best effort only; grounding still fails fast per question even without shared state.
+        return
+
+
 def run_grounding_verifier(
     question: Question,
     diagnosis_result: Optional[DiagnosisResult] = None,
@@ -440,7 +460,10 @@ def run_grounding_verifier(
     # Use MCP tools when supported by the active Foundry runner.
     if _supports_tool_runner(foundry_run):
         queries = _build_search_queries(question, diagnosis_result)
-        discovered_tools = _discover_tool_names(foundry_run)
+        cooldown_remaining = _mcp_cooldown_remaining(foundry_run)
+        discovered_tools = None
+        if cooldown_remaining <= 0:
+            discovered_tools = _discover_tool_names(foundry_run)
         _grounding_logger.info(
             "grounding_mcp_discovery",
             extra={
@@ -452,14 +475,31 @@ def run_grounding_verifier(
                     len(discovered_tools) if discovered_tools is not None else None
                 ),
                 "query_count": len(queries),
+                "cooldown_active": cooldown_remaining > 0,
+                "cooldown_remaining_ms": (
+                    round(cooldown_remaining * 1000, 2) if cooldown_remaining > 0 else 0.0
+                ),
             },
         )
 
         docs_hits: List[Dict[str, str]] = []
         code_sample_hits: List[Dict[str, str]] = []
-        mcp_rate_limited = False
+        mcp_rate_limited = cooldown_remaining > 0
+
+        if mcp_rate_limited:
+            _grounding_logger.warning(
+                "grounding_mcp_skipped_rate_limited",
+                extra={
+                    "event": "grounding_mcp_skipped_rate_limited",
+                    "question_id": question.id,
+                    "domain": question.domain,
+                    "cooldown_remaining_ms": round(cooldown_remaining * 1000, 2),
+                },
+            )
 
         for idx, query in enumerate(queries, start=1):
+            if mcp_rate_limited:
+                break
             search_started = perf_counter()
             docs_payload: Optional[Dict[str, Any]] = None
             try:
@@ -472,6 +512,7 @@ def run_grounding_verifier(
                 )
             except MCPRateLimitedError as exc:
                 mcp_rate_limited = True
+                _mark_mcp_rate_limited(foundry_run)
                 _grounding_logger.warning(
                     "grounding_mcp_rate_limited",
                     extra={
@@ -518,6 +559,7 @@ def run_grounding_verifier(
                     )
                 except MCPRateLimitedError as exc:
                     mcp_rate_limited = True
+                    _mark_mcp_rate_limited(foundry_run)
                     _grounding_logger.warning(
                         "grounding_mcp_rate_limited",
                         extra={
@@ -581,6 +623,7 @@ def run_grounding_verifier(
                         discovered_tools=discovered_tools,
                     )
                 except MCPRateLimitedError as exc:
+                    _mark_mcp_rate_limited(foundry_run)
                     _grounding_logger.warning(
                         "grounding_mcp_rate_limited",
                         extra={
