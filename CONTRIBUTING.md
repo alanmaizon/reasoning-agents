@@ -1,118 +1,112 @@
-# CONTRIBUTING
+# Contributing to Condor Console
 
-## AZ-900 Exam Guide example
+Thanks for contributing.
 
-Last verified: 2026-02-23
+This document focuses on practical contribution workflow for this repository.
+For product/demo context, see `README.md` and `docs/demo.md`.
 
-## Official exam snapshot
+## What to Contribute
 
-- Passing score: 700/1000.
-- Fundamentals exam duration: 45 minutes (65-minute seat time).
-- Typical Microsoft certification question volume: 40-60 questions (exact AZ-900 count can vary by attempt).
+- Bug fixes (API, auth, quiz logic, UI/UX)
+- Reliability and correctness improvements
+- Test coverage for regressions
+- Documentation improvements
+- Deployment/operations scripts (optional, cloud-hosted scenarios)
 
-Skills measured:
-1. Describe cloud concepts (25-30%)
-2. Describe Azure architecture and services (35-40%)
-3. Describe Azure management and governance (30-35%)
+## Local Setup
 
-## Domain 1: Describe cloud concepts (25-30%)
+```bash
+python -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -r requirements.txt
+```
 
-### Describe cloud computing
+If your shell maps commands differently, use `python3` and `pip3`.
 
-- Define cloud computing.
-- Describe the shared responsibility model.
-- Define cloud models, including public, private, and hybrid.
-- Identify appropriate use cases for each cloud model.
-- Describe the consumption-based model.
-- Compare cloud pricing models.
-- Describe serverless.
+## Run Locally
 
-### Describe the benefits of using cloud services
+Offline CLI mode:
 
-- Describe the benefits of high availability and scalability in the cloud.
-- Describe the benefits of reliability and predictability in the cloud.
-- Describe the benefits of security and governance in the cloud.
-- Describe the benefits of manageability in the cloud.
+```bash
+python -m src.main --offline
+```
 
-### Describe cloud service types
+Local API + web UI:
 
-- Describe infrastructure as a service (IaaS).
-- Describe platform as a service (PaaS).
-- Describe software as a service (SaaS).
-- Identify appropriate use cases for each cloud service type (IaaS, PaaS, and SaaS).
+```bash
+uvicorn src.api:app --reload --port 8000
+```
 
-## Domain 2: Describe Azure architecture and services (35-40%)
+Open:
 
-### Describe the core architectural components of Azure
+- `http://127.0.0.1:8000/`
+- `http://127.0.0.1:8000/healthz`
 
-- Describe Azure regions, region pairs, and sovereign regions.
-- Describe availability zones.
-- Describe Azure datacenters.
-- Describe Azure resources and resource groups.
-- Describe subscriptions.
-- Describe management groups.
-- Describe the hierarchy of resource groups, subscriptions, and management groups.
+## Testing Requirements
 
-### Describe Azure compute and networking services
+Run before opening a PR:
 
-- Compare compute types, including containers, virtual machines, and functions.
-- Describe virtual machine options, including Azure virtual machines, Azure Virtual Machine Scale Sets, availability sets, and Azure Virtual Desktop.
-- Describe the resources required for virtual machines.
-- Describe application hosting options, including web apps, containers, and virtual machines.
-- Describe virtual networking, including the purpose of Azure virtual networks, Azure virtual subnets, peering, Azure DNS, Azure VPN Gateway, and ExpressRoute.
-- Define public and private endpoints.
+```bash
+pytest -q
+bash scripts/security/check_secret_leaks.sh
+```
 
-### Describe Azure storage services
+If you changed auth/rate-limit behavior, ensure these pass:
 
-- Compare Azure Storage services.
-- Describe storage tiers.
-- Describe redundancy options.
-- Describe storage account options and storage types.
-- Identify options for moving files, including AzCopy, Azure Storage Explorer, and Azure File Sync.
-- Describe migration options, including Azure Migrate and Azure Data Box.
+- `eval/test_api_auth.py`
+- `eval/test_api_rate_limit.py`
 
-### Describe Azure identity, access, and security
+If you changed exam/evaluation behavior, ensure these pass:
 
-- Describe directory services in Azure, including Microsoft Entra ID and Microsoft Entra Domain Services.
-- Describe authentication methods in Azure, including single sign-on (SSO), multifactor authentication (MFA), and passwordless.
-- Describe external identities in Azure.
-- Describe Microsoft Entra Conditional Access.
-- Describe Azure role-based access control (RBAC).
-- Describe the concept of Zero Trust.
-- Describe the purpose of the defense-in-depth model.
-- Describe the purpose of Microsoft Defender for Cloud.
+- `eval/test_offline_eval.py`
+- `eval/test_api_eval.py`
 
-## Domain 3: Describe Azure management and governance (30-35%)
+## Security and Secrets
 
-### Describe cost management in Azure
+- Never commit real credentials or tokens.
+- Keep `.env` local only; use `.env.example` placeholders.
+- Put runtime secrets in deployment environment (for example, GitHub Secrets / VM env file).
+- Do not embed API keys in frontend code.
 
-- Describe factors that can affect costs in Azure.
-- Explore the pricing calculator.
-- Describe cost management capabilities in Azure.
-- Describe the purpose of tags.
+## Code Guidelines
 
-### Describe features and tools in Azure for governance and compliance
+- Keep changes focused and minimal.
+- Preserve schema contracts in `src/models/schemas.py`.
+- Prefer explicit, testable logic over prompt-only behavior.
+- Maintain offline fallback behavior where applicable.
+- Keep auth behavior consistent:
+  - `/healthz` public
+  - `/v1/*` protected only when `ENTRA_AUTH_ENABLED=true`
 
-- Describe the purpose of Microsoft Purview in Azure.
-- Describe the purpose of Azure Policy.
-- Describe the purpose of resource locks.
+## Frontend Contributions
 
-### Describe features and tools for managing and deploying Azure resources
+- Keep responsive behavior on desktop and mobile.
+- Preserve clear session states (start, active, submitting, submitted).
+- Avoid adding debug-only UI text to production flow.
+- If adding screenshots for docs/demo, place files in `screenshots/`.
 
-- Describe the Azure portal.
-- Describe Azure Cloud Shell, including Azure Command-Line Interface (CLI) and Azure PowerShell.
-- Describe the purpose of Azure Arc.
-- Describe infrastructure as code (IaC).
-- Describe Azure Resource Manager (ARM) and ARM templates.
+Recommended screenshot names:
 
-### Describe monitoring tools in Azure
+- `session-setup.png`
+- `exam-accordion.png`
+- `evaluation-summary.png`
+- `grounded-explanations.png`
 
-- Describe the purpose of Azure Advisor.
-- Describe Azure Service Health.
-- Describe Azure Monitor, including Log Analytics, Azure Monitor alerts, and Application Insights.
+## Pull Request Checklist
 
-## Study resources
+Before requesting review:
 
-- Certification page: https://learn.microsoft.com/en-us/credentials/certifications/azure-fundamentals/
-- Study guide: https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/az-900
-- Exam duration and experience: https://learn.microsoft.com/en-us/credentials/support/exam-duration-exam-experience
+1. Tests pass locally (`pytest -q`).
+2. Secret leak guard passes.
+3. Docs updated when behavior changes (`README.md`, `docs/demo.md`, or this file).
+4. No personal values in examples (`.env.example` stays generic).
+5. PR description includes:
+   - what changed
+   - why it changed
+   - how it was validated
+
+## CI/CD Notes
+
+- CI runs on PRs and pushes to `main` via `.github/workflows/deploy_vm.yml`.
+- VM deployment is triggered on push/workflow dispatch and is optional for local development.
+
