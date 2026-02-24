@@ -345,6 +345,48 @@ function setResultsVisibility(visible) {
   el.groundedSection.classList.toggle("is-hidden", !visible);
 }
 
+function totalQuestionCount() {
+  return state.exam?.questions?.length || 0;
+}
+
+function answeredQuestionCount() {
+  if (!state.exam?.questions?.length) {
+    return 0;
+  }
+  return state.exam.questions.reduce(
+    (count, question) => count + (typeof state.answers[question.id] === "number" ? 1 : 0),
+    0
+  );
+}
+
+function allQuestionsAnswered() {
+  const total = totalQuestionCount();
+  return total > 0 && answeredQuestionCount() === total;
+}
+
+function refreshSubmitButton() {
+  const hasExam = totalQuestionCount() > 0;
+  const answered = answeredQuestionCount();
+  const total = totalQuestionCount();
+  const canSubmit = hasExam && allQuestionsAnswered();
+
+  el.submitBtn.classList.toggle("is-hidden", !hasExam || state.examSubmitted);
+  el.submitBtn.classList.toggle("is-loading", state.submitting);
+  el.submitBtn.textContent = state.submitting ? "Submitting..." : "Submit Answers";
+  el.submitBtn.disabled =
+    !hasExam ||
+    !canSubmit ||
+    state.examLocked ||
+    state.submitting ||
+    state.examSubmitted;
+
+  if (!canSubmit && hasExam && !state.submitting && !state.examSubmitted) {
+    el.submitBtn.title = `Answer all questions before submitting (${answered}/${total}).`;
+  } else {
+    el.submitBtn.removeAttribute("title");
+  }
+}
+
 function setExamAccessibility(locked, message = "") {
   state.examLocked = Boolean(locked);
   const panel = el.planExamPanel;
@@ -371,11 +413,7 @@ function setExamAccessibility(locked, message = "") {
     control.disabled = state.examLocked || state.submitting || state.examSubmitted;
   });
 
-  const hasExam = Boolean(state.exam?.questions?.length);
-  el.submitBtn.classList.toggle("is-hidden", !hasExam || state.examSubmitted);
-  el.submitBtn.classList.toggle("is-loading", state.submitting);
-  el.submitBtn.textContent = state.submitting ? "Submitting..." : "Submit Answers";
-  el.submitBtn.disabled = !hasExam || state.examLocked || state.submitting || state.examSubmitted;
+  refreshSubmitButton();
 }
 
 function msalErrorCode(err) {
@@ -554,6 +592,7 @@ function updateQuestionProgress() {
   if (state.planMetaBase) {
     el.planMeta.textContent = `${state.planMetaBase} | Answered: ${answered}/${state.exam.questions.length}`;
   }
+  refreshSubmitButton();
 }
 
 function renderExam(exam) {
@@ -979,6 +1018,15 @@ async function startSession(event) {
 
 async function submitSession() {
   if (!state.exam || state.submitting || state.examSubmitted) {
+    return;
+  }
+  const answered = answeredQuestionCount();
+  const total = totalQuestionCount();
+  if (answered < total) {
+    setBanner(
+      "warn",
+      `Please answer all questions before submitting (${answered}/${total}).`
+    );
     return;
   }
   state.submitting = true;
