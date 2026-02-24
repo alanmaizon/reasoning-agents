@@ -8,9 +8,12 @@ const state = {
   answers: {},
   planMetaBase: "",
   authBusy: false,
+  startingSession: false,
   submitting: false,
   examLocked: false,
   examSubmitted: false,
+  sessionActive: false,
+  canStartSession: false,
 };
 
 const MSAL_SOURCES = [
@@ -31,6 +34,7 @@ const el = {
   identityDetails: document.getElementById("identityDetails"),
   identityValue: document.getElementById("identityValue"),
   startForm: document.getElementById("startForm"),
+  startSessionBtn: document.getElementById("startSessionBtn"),
   userId: document.getElementById("userId"),
   userIdRow: document.getElementById("userIdRow"),
   sessionMode: document.getElementById("sessionMode"),
@@ -67,11 +71,17 @@ function modeLabel(mode) {
 
 function syncModeInputs() {
   const isMockTest = (el.sessionMode.value || "adaptive") === "mock_test";
-  el.focusTopicsBlock.disabled = isMockTest;
-  el.focusTopicsCustom.disabled = isMockTest;
+  el.focusTopicsBlock.classList.toggle("is-hidden", isMockTest);
+  const topicsLocked = isMockTest || state.startingSession || state.sessionActive;
+  el.focusTopicsCustom.disabled = topicsLocked;
   el.focusTopicsCustom.placeholder = isMockTest
     ? "Not used in mock test mode"
     : "Optional custom topics, comma-separated";
+  el.focusTopicsBlock
+    .querySelectorAll('input[type="checkbox"]')
+    .forEach((checkbox) => {
+      checkbox.disabled = topicsLocked;
+    });
   if (isMockTest) {
     el.focusTopicsCustom.value = "";
     el.focusTopicsBlock
@@ -83,8 +93,11 @@ function syncModeInputs() {
 }
 
 function selectedFocusTopics() {
+  if (el.focusTopicsBlock.classList.contains("is-hidden")) {
+    return [];
+  }
   const topics = new Set();
-  if (el.focusTopicsBlock && !el.focusTopicsBlock.disabled) {
+  if (el.focusTopicsBlock) {
     el.focusTopicsBlock
       .querySelectorAll('input[type="checkbox"]:checked')
       .forEach((checkbox) => {
@@ -263,10 +276,28 @@ function syncUserIdInput() {
 }
 
 function setFormsEnabled(enabled) {
-  el.startForm.querySelector("button[type=submit]").disabled = !enabled;
+  state.canStartSession = Boolean(enabled);
+  refreshStartSessionControls();
   if (!enabled) {
     el.submitBtn.disabled = true;
   }
+}
+
+function refreshStartSessionControls() {
+  const canStart = Boolean(state.canStartSession);
+  const loading = Boolean(state.startingSession);
+  const active = Boolean(state.sessionActive);
+
+  el.startSessionBtn.disabled = !canStart || loading;
+  el.startSessionBtn.classList.toggle("is-loading", loading);
+  if (loading) {
+    el.startSessionBtn.textContent = active ? "Restarting..." : "Starting...";
+  } else {
+    el.startSessionBtn.textContent = active ? "Restart Session" : "Start Session";
+  }
+
+  el.sessionMode.disabled = !canStart || loading || active;
+  syncModeInputs();
 }
 
 function setPlanExamVisible(visible) {
@@ -314,6 +345,9 @@ function setExamAccessibility(locked, message = "") {
   });
 
   const hasExam = Boolean(state.exam?.questions?.length);
+  el.submitBtn.classList.toggle("is-hidden", !hasExam || state.examSubmitted);
+  el.submitBtn.classList.toggle("is-loading", state.submitting);
+  el.submitBtn.textContent = state.submitting ? "Submitting..." : "Submit Answers";
   el.submitBtn.disabled = !hasExam || state.examLocked || state.submitting || state.examSubmitted;
 }
 
@@ -863,6 +897,19 @@ async function initAuth() {
 
 async function startSession(event) {
   event.preventDefault();
+  const restarting = state.sessionActive;
+  if (restarting) {
+    const confirmed = window.confirm(
+      "Restart this session? Current answers in the active exam will be reset."
+    );
+    if (!confirmed) {
+      return;
+    }
+  }
+
+  state.startingSession = true;
+  refreshStartSessionControls();
+  setBanner("info", restarting ? "Restarting session..." : "Starting session...");
   try {
     await ensureToken();
     const payload = {
@@ -877,6 +924,7 @@ async function startSession(event) {
     state.answers = {};
     state.submitting = false;
     state.examSubmitted = false;
+    state.sessionActive = true;
 
     const domains = (result.plan?.domains || []).join(", ");
     const modeText = modeLabel(state.sessionMode);
@@ -889,6 +937,7 @@ async function startSession(event) {
     setResultsVisibility(false);
     updateQuestionProgress();
     setExamAccessibility(false);
+    refreshStartSessionControls();
 
     if ((result.warnings || []).length > 0) {
       setBanner("warn", `Session started with warnings: ${result.warnings.join(" | ")}`);
@@ -897,6 +946,9 @@ async function startSession(event) {
     }
   } catch (err) {
     setBanner("error", `Start failed: ${err.message}`);
+  } finally {
+    state.startingSession = false;
+    refreshStartSessionControls();
   }
 }
 
@@ -921,8 +973,10 @@ async function submitSession() {
     setResultsVisibility(true);
     state.examSubmitted = true;
     state.submitting = false;
+    state.sessionActive = false;
     setExamAccessibility(true, "Answers submitted. Start a new session to edit or retake.");
     setPlanExamVisible(false);
+    refreshStartSessionControls();
     setBanner("info", "Submission completed.");
   } catch (err) {
     state.submitting = false;
@@ -995,6 +1049,8 @@ function bindEvents() {
   el.logoutBtn.addEventListener("click", async () => {
     state.token = null;
     state.account = null;
+    state.sessionActive = false;
+    state.startingSession = false;
     setAuthBusy(true);
     setFormsEnabled(!state.config.auth_enabled);
     setAuthMeta();
@@ -1016,6 +1072,7 @@ function bindEvents() {
 
 async function init() {
   bindEvents();
+  refreshStartSessionControls();
   syncModeInputs();
   clearResults();
   setCoachingPanelVisible(false);

@@ -188,6 +188,10 @@ select {
   opacity: 0.5;
 }
 
+.btn.is-loading {
+  opacity: 0.5;
+}
+
 .btn.primary {
   background: var(--primary);
   color: var(--primary-ink);
