@@ -88,6 +88,10 @@ _DOMAIN_FALLBACK_CITATIONS = {
 _CHOICE_PREFIX = re.compile(r"^[A-F]\)\s*")
 
 
+class MCPRateLimitedError(RuntimeError):
+    """Raised when MCP calls are throttled and should fail fast."""
+
+
 def _iter_dicts(value: Any) -> Iterable[Dict[str, Any]]:
     """Yield all nested dict nodes from a JSON-like structure."""
     if isinstance(value, dict):
@@ -226,7 +230,20 @@ def _run_mcp_tool(foundry_run: Any, tool_name: str, arguments: Dict[str, Any]) -
     runner = getattr(foundry_run, "run_mcp_tool", None)
     if not callable(runner):
         raise RuntimeError("Foundry runner has no MCP tool capability")
-    result = runner(tool_name, arguments)
+    try:
+        result = runner(tool_name, arguments)
+    except Exception as exc:
+        msg = " ".join(str(exc).split()).lower()
+        if (
+            "too_many_requests" in msg
+            or "too many requests" in msg
+            or "error code: 429" in msg
+            or "code': 429" in msg
+            or '"code":429' in msg
+            or '"code": 429' in msg
+        ):
+            raise MCPRateLimitedError(str(exc)) from exc
+        raise
     if isinstance(result, dict):
         return result
     return {"result": result}
@@ -256,6 +273,8 @@ def _run_search_tool(
     for args in attempts:
         try:
             return _run_mcp_tool(foundry_run, tool_name, args)
+        except MCPRateLimitedError:
+            raise
         except Exception:
             continue
     return None
@@ -277,6 +296,8 @@ def _run_fetch_tool(
     for args in attempts:
         try:
             return _run_mcp_tool(foundry_run, tool_name, args)
+        except MCPRateLimitedError:
+            raise
         except Exception:
             continue
     return None
@@ -436,16 +457,31 @@ def run_grounding_verifier(
 
         docs_hits: List[Dict[str, str]] = []
         code_sample_hits: List[Dict[str, str]] = []
+        mcp_rate_limited = False
 
         for idx, query in enumerate(queries, start=1):
             search_started = perf_counter()
-            docs_payload = _run_search_tool(
-                foundry_run=foundry_run,
-                tool_name="microsoft_docs_search",
-                query=query,
-                top_k=3,
-                discovered_tools=discovered_tools,
-            )
+            docs_payload: Optional[Dict[str, Any]] = None
+            try:
+                docs_payload = _run_search_tool(
+                    foundry_run=foundry_run,
+                    tool_name="microsoft_docs_search",
+                    query=query,
+                    top_k=3,
+                    discovered_tools=discovered_tools,
+                )
+            except MCPRateLimitedError as exc:
+                mcp_rate_limited = True
+                _grounding_logger.warning(
+                    "grounding_mcp_rate_limited",
+                    extra={
+                        "event": "grounding_mcp_rate_limited",
+                        "question_id": question.id,
+                        "tool_name": "microsoft_docs_search",
+                        "query_index": idx,
+                        "error": _short_error(exc),
+                    },
+                )
             before = len(docs_hits)
             if docs_payload:
                 docs_hits = _merge_hits(docs_hits, _extract_search_hits(docs_payload))
@@ -463,40 +499,59 @@ def run_grounding_verifier(
                     "latency_ms": round((perf_counter() - search_started) * 1000, 2),
                 },
             )
+            if mcp_rate_limited:
+                break
             if len(docs_hits) >= 3:
                 break
 
-        for idx, query in enumerate(queries[:2], start=1):
-            search_started = perf_counter()
-            code_payload = _run_search_tool(
-                foundry_run=foundry_run,
-                tool_name="microsoft_code_sample_search",
-                query=query,
-                top_k=2,
-                discovered_tools=discovered_tools,
-            )
-            before = len(code_sample_hits)
-            if code_payload:
-                code_sample_hits = _merge_hits(
-                    code_sample_hits,
-                    _extract_search_hits(code_payload),
+        if not mcp_rate_limited:
+            for idx, query in enumerate(queries[:2], start=1):
+                search_started = perf_counter()
+                code_payload: Optional[Dict[str, Any]] = None
+                try:
+                    code_payload = _run_search_tool(
+                        foundry_run=foundry_run,
+                        tool_name="microsoft_code_sample_search",
+                        query=query,
+                        top_k=2,
+                        discovered_tools=discovered_tools,
+                    )
+                except MCPRateLimitedError as exc:
+                    mcp_rate_limited = True
+                    _grounding_logger.warning(
+                        "grounding_mcp_rate_limited",
+                        extra={
+                            "event": "grounding_mcp_rate_limited",
+                            "question_id": question.id,
+                            "tool_name": "microsoft_code_sample_search",
+                            "query_index": idx,
+                            "error": _short_error(exc),
+                        },
+                    )
+                before = len(code_sample_hits)
+                if code_payload:
+                    code_sample_hits = _merge_hits(
+                        code_sample_hits,
+                        _extract_search_hits(code_payload),
+                    )
+                _grounding_logger.info(
+                    "grounding_mcp_search",
+                    extra={
+                        "event": "grounding_mcp_search",
+                        "question_id": question.id,
+                        "tool_name": "microsoft_code_sample_search",
+                        "query_index": idx,
+                        "query_length": len(query),
+                        "payload_received": bool(code_payload),
+                        "hits_added": len(code_sample_hits) - before,
+                        "hits_total": len(code_sample_hits),
+                        "latency_ms": round((perf_counter() - search_started) * 1000, 2),
+                    },
                 )
-            _grounding_logger.info(
-                "grounding_mcp_search",
-                extra={
-                    "event": "grounding_mcp_search",
-                    "question_id": question.id,
-                    "tool_name": "microsoft_code_sample_search",
-                    "query_index": idx,
-                    "query_length": len(query),
-                    "payload_received": bool(code_payload),
-                    "hits_added": len(code_sample_hits) - before,
-                    "hits_total": len(code_sample_hits),
-                    "latency_ms": round((perf_counter() - search_started) * 1000, 2),
-                },
-            )
-            if len(code_sample_hits) >= 2:
-                break
+                if mcp_rate_limited:
+                    break
+                if len(code_sample_hits) >= 2:
+                    break
 
         hits = _merge_hits(docs_hits, code_sample_hits)[:3]
         _grounding_logger.info(
@@ -507,6 +562,7 @@ def run_grounding_verifier(
                 "docs_hits": len(docs_hits),
                 "code_sample_hits": len(code_sample_hits),
                 "selected_hits": len(hits),
+                "rate_limited": mcp_rate_limited,
             },
         )
 
@@ -518,11 +574,24 @@ def run_grounding_verifier(
             if cached:
                 content = cached
             else:
-                fetch_payload = _run_fetch_tool(
-                    foundry_run=foundry_run,
-                    url=url,
-                    discovered_tools=discovered_tools,
-                )
+                try:
+                    fetch_payload = _run_fetch_tool(
+                        foundry_run=foundry_run,
+                        url=url,
+                        discovered_tools=discovered_tools,
+                    )
+                except MCPRateLimitedError as exc:
+                    _grounding_logger.warning(
+                        "grounding_mcp_rate_limited",
+                        extra={
+                            "event": "grounding_mcp_rate_limited",
+                            "question_id": question.id,
+                            "tool_name": "microsoft_docs_fetch",
+                            "url": url,
+                            "error": _short_error(exc),
+                        },
+                    )
+                    fetch_payload = None
                 fetch_payload_received = bool(fetch_payload)
                 content = _extract_fetched_content(fetch_payload or {})
                 if content:
