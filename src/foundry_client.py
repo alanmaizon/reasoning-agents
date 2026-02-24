@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import logging
 import os
+import json
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
@@ -92,6 +94,46 @@ def _extract_tool_names(payload: Any) -> List[str]:
     return names
 
 
+def _pick_first_string(node: Any, keys: List[str]) -> Optional[str]:
+    if not isinstance(node, dict):
+        return None
+    for key in keys:
+        value = node.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _extract_mcp_connection_config(
+    raw_connection: Any,
+    *,
+    fallback_name: Optional[str],
+) -> tuple[Optional[str], Optional[str], Optional[str]]:
+    """Extract connection id/target/label from varied SDK connection shapes."""
+    payload = _to_jsonable(raw_connection)
+    if not isinstance(payload, dict):
+        return None, None, fallback_name
+
+    properties = payload.get("properties")
+    if not isinstance(properties, dict):
+        properties = {}
+
+    connection_id = (
+        _pick_first_string(payload, ["id", "connection_id", "resource_id"])
+        or _pick_first_string(properties, ["id", "connection_id", "resource_id"])
+    )
+    server_url = (
+        _pick_first_string(payload, ["target", "endpoint", "url", "server_url"])
+        or _pick_first_string(properties, ["target", "endpoint", "url", "server_url"])
+    )
+    server_label = (
+        _pick_first_string(payload, ["name", "connection_name"])
+        or _pick_first_string(properties, ["name", "connection_name"])
+        or fallback_name
+    )
+    return connection_id, server_url, server_label
+
+
 def _looks_like_azure_openai_endpoint(endpoint: str) -> bool:
     host = endpoint.lower()
     return any(
@@ -103,6 +145,36 @@ def _looks_like_azure_openai_endpoint(endpoint: str) -> bool:
             "services.ai.azure.com",
         )
     )
+
+
+def _looks_like_foundry_project_endpoint(endpoint: str) -> bool:
+    lower = endpoint.lower()
+    return "services.ai.azure.com" in lower or "/api/projects/" in lower
+
+
+def _derive_openai_endpoint_from_project_endpoint(project_endpoint: str) -> Optional[str]:
+    """Derive direct Azure OpenAI endpoint from a Foundry project endpoint host."""
+    parsed = urlparse(project_endpoint)
+    host = parsed.netloc.strip().lower()
+    suffix = ".services.ai.azure.com"
+    if not host.endswith(suffix):
+        return None
+    resource_name = host[: -len(suffix)].strip()
+    if not resource_name:
+        return None
+    return f"https://{resource_name}.openai.azure.com"
+
+
+def _resolve_direct_model_endpoint(endpoint: str, endpoint_is_project: bool) -> Optional[str]:
+    """Resolve endpoint to use for direct model inference calls."""
+    explicit = _get_env("AZURE_OPENAI_ENDPOINT", required=False)
+    if explicit:
+        return explicit
+    if endpoint_is_project:
+        return _derive_openai_endpoint_from_project_endpoint(endpoint)
+    if _looks_like_azure_openai_endpoint(endpoint):
+        return endpoint
+    return None
 
 
 def _as_text(value: Any) -> str:
@@ -188,7 +260,159 @@ class FoundryRunner:
     client: Any
     deployment: str
     mcp_connection_name: Optional[str] = None
+    mcp_connection_id: Optional[str] = None
+    mcp_server_url: Optional[str] = None
+    mcp_server_label: Optional[str] = None
     openai_client: Optional[Any] = None
+    project_openai_client: Optional[Any] = None
+
+    def _get_project_openai_client(self) -> Optional[Any]:
+        if self.project_openai_client is not None:
+            return self.project_openai_client
+        if self.client is None:
+            return None
+        get_openai_client = getattr(self.client, "get_openai_client", None)
+        if not callable(get_openai_client):
+            return None
+        try:
+            self.project_openai_client = get_openai_client()
+        except Exception:
+            return None
+        return self.project_openai_client
+
+    def _build_mcp_tool_payload(
+        self,
+        *,
+        allowed_tools: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        server_label = (
+            self.mcp_server_label
+            or self.mcp_connection_name
+            or "project-mcp"
+        )
+        tool: Dict[str, Any] = {
+            "type": "mcp",
+            "server_label": server_label,
+            "require_approval": "never",
+        }
+        if self.mcp_server_url:
+            tool["server_url"] = self.mcp_server_url
+        if self.mcp_connection_id:
+            tool["project_connection_id"] = self.mcp_connection_id
+        if allowed_tools:
+            tool["allowed_tools"] = allowed_tools
+        return tool
+
+    def _extract_mcp_call_output(
+        self,
+        response: Any,
+        *,
+        tool_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        output_items = _to_jsonable(getattr(response, "output", None))
+        if not isinstance(output_items, list):
+            return None
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "mcp_call":
+                continue
+            item_name = item.get("name") or item.get("tool_name")
+            if item_name and item_name != tool_name:
+                continue
+            raw_error = item.get("error")
+            if raw_error:
+                raise RuntimeError(f"MCP call returned error: {raw_error}")
+            raw_output = item.get("output")
+            if isinstance(raw_output, dict):
+                return raw_output
+            if isinstance(raw_output, str):
+                stripped = raw_output.strip()
+                if not stripped:
+                    return {"output": raw_output}
+                try:
+                    parsed = json.loads(stripped)
+                    if isinstance(parsed, dict):
+                        return parsed
+                    return {"result": parsed}
+                except Exception:
+                    return {"output": raw_output}
+            if raw_output is not None:
+                return {"result": raw_output}
+        return None
+
+    def _run_mcp_via_responses(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        openai_client = self._get_project_openai_client()
+        if openai_client is None:
+            return None
+        responses = getattr(openai_client, "responses", None)
+        create = getattr(responses, "create", None)
+        if not callable(create):
+            return None
+        if not (self.mcp_server_url or self.mcp_connection_id):
+            return None
+
+        tool_payload = self._build_mcp_tool_payload(allowed_tools=[tool_name])
+        server_label = tool_payload["server_label"]
+        prompt = (
+            f"Call MCP tool '{tool_name}' exactly once using the JSON arguments below.\n"
+            f"{json.dumps(arguments, ensure_ascii=False)}"
+        )
+        response = create(
+            model=self.deployment,
+            input=prompt,
+            tools=[tool_payload],
+            tool_choice={
+                "type": "mcp",
+                "server_label": server_label,
+                "name": tool_name,
+            },
+            max_output_tokens=256,
+        )
+        return self._extract_mcp_call_output(response, tool_name=tool_name)
+
+    def _list_mcp_tools_via_responses(self) -> Optional[List[str]]:
+        openai_client = self._get_project_openai_client()
+        if openai_client is None:
+            return None
+        responses = getattr(openai_client, "responses", None)
+        create = getattr(responses, "create", None)
+        if not callable(create):
+            return None
+        if not (self.mcp_server_url or self.mcp_connection_id):
+            return None
+
+        tool_payload = self._build_mcp_tool_payload()
+        server_label = tool_payload["server_label"]
+        response = create(
+            model=self.deployment,
+            input="List available tools from this MCP server.",
+            tools=[tool_payload],
+            tool_choice={"type": "mcp", "server_label": server_label},
+            max_output_tokens=64,
+        )
+        output_items = _to_jsonable(getattr(response, "output", None))
+        if not isinstance(output_items, list):
+            return None
+
+        names: List[str] = []
+        seen = set()
+        for item in output_items:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") != "mcp_list_tools":
+                continue
+            for name in _extract_tool_names(item):
+                if name in seen:
+                    continue
+                seen.add(name)
+                names.append(name)
+        return names or None
 
     def __call__(self, agent_name: str, system_prompt: str, user_prompt: str) -> str:
         """Execute a single-turn agent call via Foundry."""
@@ -346,6 +570,39 @@ class FoundryRunner:
                 if result is not None:
                     return _to_jsonable(result)
 
+        # Candidate 4: OpenAI Responses API MCP tool call using project connection.
+        started = perf_counter()
+        try:
+            result = self._run_mcp_via_responses(
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+            if result is not None:
+                _mcp_logger.info(
+                    "mcp_tool_call_success",
+                    extra={
+                        "event": "mcp_tool_call_success",
+                        "tool_name": tool_name,
+                        "sdk_surface": "responses_mcp",
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                        "connection_name_used": bool(self.mcp_connection_name),
+                    },
+                )
+                return _to_jsonable(result)
+        except Exception as exc:
+            attempts.append(f"responses.mcp: {exc}")
+            _mcp_logger.warning(
+                "mcp_tool_call_failure",
+                extra={
+                    "event": "mcp_tool_call_failure",
+                    "tool_name": tool_name,
+                    "sdk_surface": "responses_mcp",
+                    "latency_ms": round((perf_counter() - started) * 1000, 2),
+                    "connection_name_used": bool(self.mcp_connection_name),
+                    "error": _short_error(exc),
+                },
+            )
+
         reason = (
             "MCP tool execution is not available from this Foundry client runtime."
         )
@@ -469,6 +726,35 @@ class FoundryRunner:
                         )
                         return names
 
+        # Candidate 4: OpenAI Responses API MCP list-tools using project connection.
+        started = perf_counter()
+        try:
+            names = self._list_mcp_tools_via_responses()
+            if names:
+                _mcp_logger.info(
+                    "mcp_list_tools_success",
+                    extra={
+                        "event": "mcp_list_tools_success",
+                        "sdk_surface": "responses_mcp",
+                        "tools_count": len(names),
+                        "connection_name_used": bool(self.mcp_connection_name),
+                        "latency_ms": round((perf_counter() - started) * 1000, 2),
+                    },
+                )
+                return names
+        except Exception as exc:
+            attempts.append(f"responses.mcp: {exc}")
+            _mcp_logger.warning(
+                "mcp_list_tools_call_failure",
+                extra={
+                    "event": "mcp_list_tools_call_failure",
+                    "sdk_surface": "responses_mcp",
+                    "latency_ms": round((perf_counter() - started) * 1000, 2),
+                    "connection_name_used": bool(self.mcp_connection_name),
+                    "error": _short_error(exc),
+                },
+            )
+
         reason = "MCP tool discovery is not available from this Foundry client runtime."
         if attempts:
             reason = f"{reason} Attempts: {' | '.join(attempts[:3])}"
@@ -494,6 +780,7 @@ def get_foundry_runner():
         endpoint = _get_env("AZURE_AI_PROJECT_ENDPOINT")
         deployment = _get_env("AZURE_AI_MODEL_DEPLOYMENT_NAME")
         mcp_connection_name = _get_env("MCP_PROJECT_CONNECTION_NAME", required=False)
+        mcp_server_url_env = _get_env("MCP_SERVER_URL", required=False)
     except EnvironmentError as exc:
         from .util.console import console
         console.print(f"[yellow]⚠ {exc}[/yellow]")
@@ -501,14 +788,159 @@ def get_foundry_runner():
         return None
 
     init_errors: List[str] = []
+    endpoint_is_project = _looks_like_foundry_project_endpoint(endpoint)
+    direct_endpoint_supported = _looks_like_azure_openai_endpoint(endpoint)
+    mcp_requested = bool(mcp_connection_name)
+    prefer_projects = endpoint_is_project or mcp_requested
+    api_key_configured = bool(_get_env("AZURE_OPENAI_API_KEY", required=False))
 
-    # If this is a direct Azure OpenAI endpoint and a key is provided,
-    # prefer key auth to avoid VM identity requirements.
-    if _looks_like_azure_openai_endpoint(endpoint) and _get_env(
-        "AZURE_OPENAI_API_KEY", required=False
-    ):
+    _mcp_logger.info(
+        "foundry_runner_init",
+        extra={
+            "event": "foundry_runner_init",
+            "endpoint_is_project": endpoint_is_project,
+            "direct_endpoint_supported": direct_endpoint_supported,
+            "mcp_requested": mcp_requested,
+            "prefer_projects": prefer_projects,
+            "api_key_configured": api_key_configured,
+        },
+    )
+
+    def _init_projects_runner() -> Optional[FoundryRunner]:
+        try:
+            from azure.ai.projects import AIProjectClient
+            from azure.identity import DefaultAzureCredential
+
+            client = AIProjectClient(
+                endpoint=endpoint,
+                credential=DefaultAzureCredential(),
+            )
+            openai_client = None
+            model_runtime = "ai_projects_openai_client"
+            mcp_connection_id: Optional[str] = None
+            mcp_server_url: Optional[str] = mcp_server_url_env
+            mcp_server_label: Optional[str] = mcp_connection_name
+
+            # For project endpoints, prefer direct Azure OpenAI inference when possible.
+            # This keeps MCP/tool capability via project client while using stable model
+            # deployment routing for planner/examiner/coach/grounding model calls.
+            direct_model_endpoint = _resolve_direct_model_endpoint(
+                endpoint=endpoint,
+                endpoint_is_project=endpoint_is_project,
+            )
+            if direct_model_endpoint and (
+                api_key_configured or not endpoint_is_project
+            ):
+                try:
+                    openai_client = _build_direct_azure_openai_client(direct_model_endpoint)
+                    model_runtime = "azure_openai_direct"
+                except Exception as exc:
+                    init_errors.append(f"projects.direct_model_client_init failed: {exc}")
+
+            if openai_client is None:
+                get_openai_client = getattr(client, "get_openai_client", None)
+                if callable(get_openai_client):
+                    try:
+                        openai_client = get_openai_client()
+                    except Exception as exc:
+                        init_errors.append(f"projects.get_openai_client failed: {exc}")
+
+            if mcp_requested and mcp_connection_name:
+                connections = getattr(client, "connections", None)
+                get_connection = getattr(connections, "get", None)
+                if callable(get_connection):
+                    connection = None
+                    for kwargs in (
+                        {"name": mcp_connection_name, "include_credentials": True},
+                        {"name": mcp_connection_name},
+                        {"connection_name": mcp_connection_name},
+                    ):
+                        try:
+                            connection = get_connection(**kwargs)
+                            break
+                        except TypeError:
+                            continue
+                        except Exception as exc:
+                            init_errors.append(f"projects.connections.get failed: {exc}")
+                            break
+                    if connection is not None:
+                        (
+                            mcp_connection_id,
+                            mcp_connection_target,
+                            mcp_connection_label,
+                        ) = _extract_mcp_connection_config(
+                            connection,
+                            fallback_name=mcp_connection_name,
+                        )
+                        if mcp_connection_target:
+                            mcp_server_url = mcp_connection_target
+                        if mcp_connection_label:
+                            mcp_server_label = mcp_connection_label
+                        _mcp_logger.info(
+                            "foundry_mcp_connection_resolved",
+                            extra={
+                                "event": "foundry_mcp_connection_resolved",
+                                "connection_name": mcp_connection_name,
+                                "connection_id_resolved": bool(mcp_connection_id),
+                                "server_url_resolved": bool(mcp_server_url),
+                            },
+                        )
+                    else:
+                        _mcp_logger.warning(
+                            "foundry_mcp_connection_unresolved",
+                            extra={
+                                "event": "foundry_mcp_connection_unresolved",
+                                "connection_name": mcp_connection_name,
+                                "server_url_configured": bool(mcp_server_url),
+                            },
+                        )
+                else:
+                    _mcp_logger.warning(
+                        "foundry_mcp_connection_lookup_unsupported",
+                        extra={
+                            "event": "foundry_mcp_connection_lookup_unsupported",
+                            "connection_name": mcp_connection_name,
+                        },
+                    )
+
+            _mcp_logger.info(
+                "foundry_runner_selected",
+                extra={
+                    "event": "foundry_runner_selected",
+                    "runtime": "ai_projects",
+                    "model_runtime": model_runtime,
+                    "mcp_connection_configured": mcp_requested,
+                    "endpoint_is_project": endpoint_is_project,
+                    "direct_model_endpoint_used": bool(
+                        openai_client is not None and model_runtime == "azure_openai_direct"
+                    ),
+                },
+            )
+            return FoundryRunner(
+                client=client,
+                deployment=deployment,
+                mcp_connection_name=mcp_connection_name,
+                mcp_connection_id=mcp_connection_id,
+                mcp_server_url=mcp_server_url,
+                mcp_server_label=mcp_server_label,
+                openai_client=openai_client,
+            )
+        except Exception as exc:
+            init_errors.append(f"AIProjectClient init failed: {exc}")
+            return None
+
+    def _init_direct_runner(error_prefix: str) -> Optional[FoundryRunner]:
         try:
             openai_client = _build_direct_azure_openai_client(endpoint)
+            _mcp_logger.info(
+                "foundry_runner_selected",
+                extra={
+                    "event": "foundry_runner_selected",
+                    "runtime": "azure_openai_direct",
+                    "mcp_connection_configured": mcp_requested,
+                    "endpoint_is_project": endpoint_is_project,
+                },
+            )
             return FoundryRunner(
                 client=None,
                 deployment=deployment,
@@ -516,46 +948,40 @@ def get_foundry_runner():
                 openai_client=openai_client,
             )
         except Exception as exc:
-            init_errors.append(f"AzureOpenAI key auth init failed: {exc}")
+            init_errors.append(f"{error_prefix}: {exc}")
+            return None
 
-    # Preferred: Azure AI Projects SDK (supports MCP when available).
-    try:
-        from azure.ai.projects import AIProjectClient
-        from azure.identity import DefaultAzureCredential
+    # For project endpoints (or explicit MCP config), prefer the Projects client.
+    if prefer_projects:
+        projects_runner = _init_projects_runner()
+        if projects_runner is not None:
+            return projects_runner
+        if mcp_requested:
+            _mcp_logger.warning(
+                "foundry_runner_mcp_degraded",
+                extra={
+                    "event": "foundry_runner_mcp_degraded",
+                    "reason": "ai_projects_init_failed",
+                },
+            )
 
-        client = AIProjectClient(
-            endpoint=endpoint,
-            credential=DefaultAzureCredential(),
-        )
-        openai_client = None
-        get_openai_client = getattr(client, "get_openai_client", None)
-        if callable(get_openai_client):
-            try:
-                openai_client = get_openai_client()
-            except Exception as exc:
-                init_errors.append(f"projects.get_openai_client failed: {exc}")
+    # For classic direct endpoints, key-auth can be fastest when MCP isn't requested.
+    if not prefer_projects and direct_endpoint_supported and api_key_configured:
+        direct_runner = _init_direct_runner("AzureOpenAI key auth init failed")
+        if direct_runner is not None:
+            return direct_runner
 
-        return FoundryRunner(
-            client=client,
-            deployment=deployment,
-            mcp_connection_name=mcp_connection_name,
-            openai_client=openai_client,
-        )
-    except Exception as exc:
-        init_errors.append(f"AIProjectClient init failed: {exc}")
+    # Keep Projects SDK as next fallback for managed identity and richer runtime.
+    if not prefer_projects:
+        projects_runner = _init_projects_runner()
+        if projects_runner is not None:
+            return projects_runner
 
     # Fallback: direct Azure OpenAI endpoint.
-    if _looks_like_azure_openai_endpoint(endpoint):
-        try:
-            openai_client = _build_direct_azure_openai_client(endpoint)
-            return FoundryRunner(
-                client=None,
-                deployment=deployment,
-                mcp_connection_name=mcp_connection_name,
-                openai_client=openai_client,
-            )
-        except Exception as exc:
-            init_errors.append(f"AzureOpenAI fallback init failed: {exc}")
+    if direct_endpoint_supported:
+        direct_runner = _init_direct_runner("AzureOpenAI fallback init failed")
+        if direct_runner is not None:
+            return direct_runner
 
     from .util.console import console
 

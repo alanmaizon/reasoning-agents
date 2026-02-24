@@ -194,7 +194,13 @@ def _extract_fetched_content(payload: Dict[str, Any]) -> str:
 
 
 def _supports_tool_runner(foundry_run: Any) -> bool:
-    return callable(getattr(foundry_run, "run_mcp_tool", None))
+    runner = getattr(foundry_run, "run_mcp_tool", None)
+    if not callable(runner):
+        return False
+    # Direct OpenAI fallback runners expose the method but cannot execute MCP tools.
+    if hasattr(foundry_run, "client") and getattr(foundry_run, "client") is None:
+        return False
+    return True
 
 
 def _discover_tool_names(foundry_run: Any) -> Optional[set[str]]:

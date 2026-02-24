@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from src.agents.grounding_verifier import run_grounding_verifier
+from src.agents.grounding_verifier import _supports_tool_runner, run_grounding_verifier
+from src.foundry_client import FoundryRunner
 from src.models.schemas import DiagnosisResult, Question
 
 
@@ -83,3 +84,12 @@ def test_grounding_uses_code_sample_search_when_discovered():
     called_tools = [name for name, _ in runner.tool_calls]
     assert "microsoft_code_sample_search" in called_tools
     assert "microsoft_docs_search" not in called_tools
+
+
+def test_direct_openai_runner_not_treated_as_mcp_capable():
+    runner = FoundryRunner(
+        client=None,
+        deployment="test-model",
+        openai_client=object(),
+    )
+    assert _supports_tool_runner(runner) is False
