@@ -33,6 +33,15 @@ References:
 - https://learn.microsoft.com/en-us/credentials/support/exam-duration-exam-experience
 - https://learn.microsoft.com/en-us/credentials/certifications/resources/study-guides/az-900
 
+## App Snapshots
+
+[Demo Video (Vimeo)](https://vimeo.com/1167717294?share=copy&fl=sv&fe=ci)
+
+![Session setup](screenshots/session-setup.png)
+![Exam accordion](screenshots/exam-accordion.png)
+![Evaluation summary](screenshots/evaluation-summary.png)
+![Grounded explanations](screenshots/grounded-explanations.png)
+
 ## Architecture
 
 ```mermaid
@@ -226,7 +235,12 @@ Authentication behavior:
 pytest eval/test_offline_eval.py -v
 ```
 
-## Deploy To Azure App Service
+## Optional Cloud Deployment
+
+The sections below are optional and only needed when you want to host Condor on Azure.
+They are not required for local development or challenge evaluation.
+
+### Deploy To Azure App Service
 
 1. Set deployment variables in your shell:
    - `RESOURCE_GROUP`, `LOCATION`, `ACR_NAME`, `APP_SERVICE_PLAN`, `WEBAPP_NAME`
@@ -244,7 +258,7 @@ After deployment, your API health endpoint is:
 https://<WEBAPP_NAME>.azurewebsites.net/healthz
 ```
 
-## Deploy To Azure VM
+### Deploy To Azure VM
 
 Manual deploy from your machine:
 
@@ -270,7 +284,7 @@ export HEALTHCHECK_URL=https://<vm-fqdn>/healthz
 bash scripts/azure/tune_vm_runtime.sh
 ```
 
-## Entra External ID User Flow (CLI)
+### Entra External ID User Flow (CLI)
 
 Create an external tenant (one-time):
 
@@ -331,7 +345,7 @@ Requirements:
 - For B2C tenants, delegated/app mode requires `IdentityUserFlow.ReadWrite.All`.
 - The script auto-detects CIAM vs B2C from Graph API responses and uses the appropriate endpoint.
 
-## GitHub Actions CI/CD To VM
+### GitHub Actions CI/CD To VM
 
 Workflow file: `.github/workflows/deploy_vm.yml`
 
@@ -385,7 +399,7 @@ Recommended:
 - Create GitHub Environment `production` and place deploy secrets there.
 - Add required reviewer approval on `production` if you want protected deploys.
 
-## Observability Setup (VM)
+### Observability Setup (VM)
 
 ```bash
 export RESOURCE_GROUP=<resource-group>
