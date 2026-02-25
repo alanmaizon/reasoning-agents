@@ -60,20 +60,11 @@ def _save_state(state: StudentState) -> bool:
 
 
 def _prompt_user_intake() -> tuple[list[str], int]:
-    """Prompt user for optional focus topics and daily study minutes."""
+    """Prompt user for optional focus topics and use default study minutes."""
     console.print("\n[bold]Optional:[/bold] Enter focus topics (comma-separated) or press Enter to skip:")
     raw_topics = input("> ").strip()
     topics = [t.strip() for t in raw_topics.split(",") if t.strip()] if raw_topics else []
-
-    console.print("[bold]Optional:[/bold] Daily study minutes (default 30):")
-    raw_mins = input("> ").strip()
-    try:
-        minutes = int(raw_mins) if raw_mins else 30
-    except ValueError:
-        minutes = 30
-    if minutes <= 0:
-        minutes = 30
-    return topics, minutes
+    return topics, 30
 
 
 def _present_quiz(exam: Exam) -> StudentAnswerSheet:

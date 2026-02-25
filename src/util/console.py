@@ -11,8 +11,17 @@ console = Console()
 
 
 def print_banner() -> None:
+    condor_ascii = r"""
+                     _
+                    | |
+  ___ ___  _ __   __| | ___  _ __
+ / __/ _ \| '_ \ / _` |/ _ \| '__|
+| (_| (_) | | | | (_| | (_) | |
+ \___\___/|_| |_|\__,_|\___/|_|
+"""
     console.print(
         Panel(
+            f"[cyan]{condor_ascii}[/cyan]\n"
             "[bold cyan]Condor — AZ-900 Reasoning Tutor[/bold cyan]\n"
             "[dim]AZ-900 Certification Prep  •  Powered by Microsoft Foundry[/dim]",
             border_style="bright_blue",
