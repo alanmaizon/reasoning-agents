@@ -22,7 +22,7 @@ def print_banner() -> None:
     console.print(
         Panel(
             f"[cyan]{condor_ascii}[/cyan]\n"
-            "[bold cyan]Condor — AZ-900 Reasoning Tutor[/bold cyan]\n"
+            "[bold cyan]Reasoning Agent[/bold cyan]\n"
             "[dim]AZ-900 Certification Prep  •  Powered by Microsoft Foundry[/dim]",
             border_style="bright_blue",
         )
