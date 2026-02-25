@@ -348,20 +348,6 @@ select {
   margin: 0.55rem 0 0.95rem;
 }
 
-.identity-details {
-  margin: 0.2rem 0 1rem;
-}
-
-.identity-details summary {
-  cursor: pointer;
-  color: #24485d;
-}
-
-#identityValue {
-  margin-top: 0.45rem;
-  word-break: break-all;
-}
-
 .banner {
   border-radius: 10px;
   border: 1px solid var(--line);
@@ -631,40 +617,80 @@ body > #authBanner.banner.toast {
   position: fixed;
   right: max(1rem, calc((100vw - min(1120px, 94vw)) / 2 + 0.45rem));
   bottom: 1rem;
-  width: min(320px, calc(100vw - 1.3rem));
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 0.7rem;
+  width: min(50vw, 36rem);
+  min-width: 16rem;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 0.48rem 0.6rem;
   background:
     linear-gradient(
       145deg,
-      rgba(243, 250, 253, 0.92) 0%,
-      rgba(255, 255, 255, 0.92) 100%
+      rgba(255, 255, 255, 0.28) 0%,
+      rgba(255, 255, 255, 0.12) 100%
     );
-  box-shadow: 0 16px 36px rgba(11, 31, 47, 0.2);
-  backdrop-filter: blur(8px);
+  box-shadow:
+    0 12px 36px rgba(10, 30, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(14px) saturate(135%);
+  -webkit-backdrop-filter: blur(14px) saturate(135%);
   z-index: 35;
   transform: translate(var(--nav-x, 0px), var(--nav-y, 0px));
   transition: transform 140ms ease;
 }
 
-.exam-nav-head {
-  margin-bottom: 0.52rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #1d4a60;
-}
-
 .exam-nav-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.5rem;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.62rem;
 }
 
 .nav-btn {
-  min-height: 2.6rem;
-  font-weight: 700;
+  width: 2.55rem;
+  height: 2.55rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  background: rgba(255, 255, 255, 0.08);
+  color: #133d53;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.35),
+    0 8px 20px rgba(8, 28, 39, 0.18);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background-color 140ms ease,
+    border-color 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.nav-btn svg {
+  width: 1.1rem;
+  height: 1.1rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.1;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.nav-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.46);
+}
+
+.nav-btn:focus-visible {
+  outline: 2px solid rgba(19, 76, 105, 0.45);
+  outline-offset: 2px;
+}
+
+.nav-btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .result-list {
@@ -1050,5 +1076,16 @@ body > #authBanner.banner.toast {
 
   .topic-grid {
     grid-template-columns: 1fr;
+  }
+
+  .exam-nav-widget {
+    width: min(84vw, 22rem);
+    min-width: 0;
+    bottom: 0.75rem;
+  }
+
+  .nav-btn {
+    width: 2.4rem;
+    height: 2.4rem;
   }
 }

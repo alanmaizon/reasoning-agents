@@ -35,8 +35,6 @@ const el = {
   authMeta: document.getElementById("authMeta"),
   loginBtn: document.getElementById("loginBtn"),
   logoutBtn: document.getElementById("logoutBtn"),
-  identityDetails: document.getElementById("identityDetails"),
-  identityValue: document.getElementById("identityValue"),
   startForm: document.getElementById("startForm"),
   startSessionBtn: document.getElementById("startSessionBtn"),
   userId: document.getElementById("userId"),
@@ -59,7 +57,6 @@ const el = {
   confirmCancelBtn: document.getElementById("confirmCancelBtn"),
   confirmOkBtn: document.getElementById("confirmOkBtn"),
   examNavWidget: document.getElementById("examNavWidget"),
-  examNavQuestion: document.getElementById("examNavQuestion"),
   navPrevBtn: document.getElementById("navPrevBtn"),
   navNextBtn: document.getElementById("navNextBtn"),
   navMoveUpBtn: document.getElementById("navMoveUpBtn"),
@@ -339,33 +336,16 @@ function setAuthMeta() {
   if (!state.config?.auth_enabled) {
     el.authMeta.textContent = "";
     el.authMeta.classList.add("is-hidden");
-    if (el.identityDetails && el.identityValue) {
-      el.identityDetails.classList.add("is-hidden");
-      el.identityValue.textContent = "";
-    }
     return;
   }
 
   if (state.account) {
-    const principal =
-      state.account.username ||
-      state.account.name ||
-      state.account.localAccountId ||
-      "signed-in";
     el.authMeta.textContent = "";
     el.authMeta.classList.add("is-hidden");
-    if (el.identityDetails && el.identityValue) {
-      el.identityDetails.classList.remove("is-hidden");
-      el.identityValue.textContent = principal;
-    }
     return;
   }
   el.authMeta.classList.remove("is-hidden");
   el.authMeta.textContent = "Sign in is required to start a session.";
-  if (el.identityDetails && el.identityValue) {
-    el.identityDetails.classList.add("is-hidden");
-    el.identityValue.textContent = "";
-  }
 }
 
 function deriveUserIdFromAccount() {
@@ -562,12 +542,14 @@ function moveExamNavigator(dx, dy) {
 }
 
 function updateExamNavigator() {
-  if (!el.examNavQuestion || !el.navPrevBtn || !el.navNextBtn) {
+  if (!el.navPrevBtn || !el.navNextBtn || !el.examNavWidget) {
     return;
   }
   const total = state.exam?.questions?.length || 0;
   if (total === 0) {
-    el.examNavQuestion.textContent = "No questions";
+    el.examNavWidget.setAttribute("aria-label", "Exam navigator. No questions loaded.");
+    el.navPrevBtn.title = "Previous question";
+    el.navNextBtn.title = "Next question";
     el.navPrevBtn.disabled = true;
     el.navNextBtn.disabled = true;
     return;
@@ -577,9 +559,20 @@ function updateExamNavigator() {
   const answeredCount = answeredQuestionCount();
   const answeredTag =
     typeof state.answers[q.id] === "number" ? "Answered" : "Pending";
-  el.examNavQuestion.textContent = `Q${q.id} • ${index + 1}/${total} • ${answeredTag} • ${answeredCount}/${total}`;
-  el.navPrevBtn.disabled = state.examLocked || index <= 0;
-  el.navNextBtn.disabled = state.examLocked || index >= total - 1;
+  const prevDisabled = state.examLocked || index <= 0;
+  const nextDisabled = state.examLocked || index >= total - 1;
+  el.examNavWidget.setAttribute(
+    "aria-label",
+    `Exam navigator. Question ${q.id}. ${index + 1} of ${total}. ${answeredTag}. ${answeredCount} answered.`
+  );
+  el.navPrevBtn.title = prevDisabled
+    ? "Previous question"
+    : `Go to question ${state.exam.questions[index - 1]?.id || index}`;
+  el.navNextBtn.title = nextDisabled
+    ? "Next question"
+    : `Go to question ${state.exam.questions[index + 1]?.id || index + 2}`;
+  el.navPrevBtn.disabled = prevDisabled;
+  el.navNextBtn.disabled = nextDisabled;
 }
 
 function totalQuestionCount() {

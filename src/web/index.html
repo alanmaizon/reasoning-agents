@@ -33,10 +33,6 @@
           <button id="logoutBtn" class="btn ghost" type="button">Sign Out</button>
           <span id="authMeta" class="small"></span>
         </div>
-        <details id="identityDetails" class="identity-details is-hidden">
-          <summary class="small">Session identity</summary>
-          <div id="identityValue" class="mono small"></div>
-        </details>
 
         <form id="startForm" class="stack">
           <label id="userIdRow">
@@ -122,15 +118,16 @@
       </section>
 
       <aside id="examNavWidget" class="exam-nav-widget is-hidden" aria-hidden="true" aria-label="Exam navigator">
-        <div class="exam-nav-head">
-          <span id="examNavQuestion" class="mono small">Q1 · 1/1</span>
-        </div>
         <div class="exam-nav-row">
-          <button id="navPrevBtn" class="btn ghost nav-btn" type="button" aria-label="Previous question">
-            ◀ Prev
+          <button id="navPrevBtn" class="nav-btn" type="button" aria-label="Previous question">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M14.5 6.5 9 12l5.5 5.5"></path>
+            </svg>
           </button>
-          <button id="navNextBtn" class="btn ghost nav-btn" type="button" aria-label="Next question">
-            Next ▶
+          <button id="navNextBtn" class="nav-btn" type="button" aria-label="Next question">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+              <path d="M9.5 6.5 15 12l-5.5 5.5"></path>
+            </svg>
           </button>
         </div>
       </aside>
