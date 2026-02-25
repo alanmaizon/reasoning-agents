@@ -682,6 +682,24 @@ def run_grounding_verifier(
         },
     )
 
+    # When MCP retrieval yields no evidence, skip model invocation and produce
+    # deterministic grounded output using domain-aware fallback citations.
+    if not evidence:
+        fallback = _fallback_ground(question, evidence, diagnosis_result)
+        _grounding_logger.warning(
+            "grounding_fallback_used",
+            extra={
+                "event": "grounding_fallback_used",
+                "question_id": question.id,
+                "domain": question.domain,
+                "fallback_reason": "no_mcp_evidence",
+                "evidence_count": 0,
+                "citations_count": len(fallback.citations),
+                "duration_ms": round((perf_counter() - started) * 1000, 2),
+            },
+        )
+        return fallback
+
     diag_json = diagnosis_result.model_dump() if diagnosis_result else {}
     evidence_json = [c.model_dump() for c in evidence]
     prompt = (

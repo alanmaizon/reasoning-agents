@@ -87,6 +87,19 @@ class ThrottledMCPRunner:
         )
 
 
+class NoEvidenceRunner:
+    """Runner where MCP discovery is available but yields no searchable tools."""
+
+    def list_mcp_tools(self):
+        return []
+
+    def run_mcp_tool(self, tool_name, arguments):
+        raise AssertionError("run_mcp_tool should not be called when no tools are discovered")
+
+    def __call__(self, agent_name: str, system_prompt: str, user_prompt: str) -> str:
+        raise AssertionError("Model call should be skipped when evidence is empty")
+
+
 def test_grounding_uses_code_sample_search_when_discovered():
     runner = CodeSampleOnlyRunner()
     question = Question(
@@ -172,3 +185,34 @@ def test_direct_openai_runner_not_treated_as_mcp_capable():
         openai_client=object(),
     )
     assert _supports_tool_runner(runner) is False
+
+
+def test_grounding_uses_domain_fallback_without_model_when_evidence_empty():
+    runner = NoEvidenceRunner()
+    question = Question(
+        id="q1",
+        domain="Security",
+        stem="Which service handles cloud identity for Azure resources?",
+        choices=["Microsoft Entra ID", "Azure DNS", "Azure CDN", "Azure Monitor"],
+        answer_key=0,
+        rationale_draft="Microsoft Entra ID provides identity and access management.",
+    )
+    diagnosis = DiagnosisResult(
+        id="q1",
+        correct=False,
+        misconception_id="IDAM",
+        why="Student picked a networking service instead of IAM.",
+        confidence=0.86,
+    )
+
+    result = run_grounding_verifier(
+        question=question,
+        diagnosis_result=diagnosis,
+        offline=False,
+        foundry_run=runner,
+    )
+
+    assert result.question_id == "q1"
+    assert result.explanation.startswith("Correct answer:")
+    assert result.citations
+    assert result.citations[0].url.startswith("https://learn.microsoft.com/")
