@@ -30,3 +30,5 @@ def test_approval_handler_normalizes_tool_name():
 
 def test_is_tool_allowed_rejects_injection_like_name():
     assert is_tool_allowed("microsoft_docs_search; rm -rf /") is False
+    assert is_tool_allowed("microsoft_docs_search\nmicrosoft_docs_fetch") is False
+    assert is_tool_allowed("$(microsoft_docs_search)") is False
