@@ -32,3 +32,16 @@ def test_is_tool_allowed_rejects_injection_like_name():
     assert is_tool_allowed("microsoft_docs_search; rm -rf /") is False
     assert is_tool_allowed("microsoft_docs_search\nmicrosoft_docs_fetch") is False
     assert is_tool_allowed("$(microsoft_docs_search)") is False
+
+
+def test_tool_policy_fail_closed_on_non_string_input():
+    inputs = [
+        None,
+        123,
+        ["microsoft_docs_search"],
+        {"name": "microsoft_docs_search"},
+    ]
+    for value in inputs:
+        assert is_tool_allowed(value) is False
+        approved, _ = approval_handler(value)
+        assert approved is False

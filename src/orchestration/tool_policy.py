@@ -15,7 +15,9 @@ ALLOWED_MCP_TOOLS: Set[str] = {
 _TOOL_NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
 
 
-def _normalize_tool_name(tool_name: str) -> str:
+def _normalize_tool_name(tool_name: object) -> str:
+    if not isinstance(tool_name, str):
+        return ""
     return " ".join(tool_name.split()).lower()
 
 
@@ -25,13 +27,13 @@ def _is_normalized_tool_allowed(normalized_tool_name: str) -> bool:
     return normalized_tool_name in ALLOWED_MCP_TOOLS
 
 
-def is_tool_allowed(tool_name: str) -> bool:
+def is_tool_allowed(tool_name: object) -> bool:
     """Return True only for allow-listed tools."""
     normalized = _normalize_tool_name(tool_name)
     return _is_normalized_tool_allowed(normalized)
 
 
-def approval_handler(tool_name: str) -> tuple[bool, str]:
+def approval_handler(tool_name: object) -> tuple[bool, str]:
     """Auto-approve allow-listed tools; deny everything else.
 
     Returns (approved, reason).
